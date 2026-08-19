@@ -88,7 +88,6 @@ export function Sidebar() {
       <div className="px-6 pb-4 pt-1 font-mono text-[10px] text-faint">
         <span className="text-[color:var(--ansi-yellow)]">⌘K</span> new ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">g</span> wall ·{' '}
-        <span className="text-[color:var(--ansi-yellow)]">c</span> theme ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">1–9</span> jump ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">?</span> all keys
       </div>

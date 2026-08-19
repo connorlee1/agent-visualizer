@@ -55,16 +55,6 @@ export function AppShell() {
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable) return;
       if (e.key === 'g') {
         navigate('/grid');
-      } else if (e.key === 'c') {
-        // next color theme; if auto-cycle is on, this also resets its clock
-        nudgeTheme();
-      } else if (e.key === 'u') {
-        // reopen the most recently closed agent, like a browser's ⌘⇧T
-        const last = closed?.find((c) => c.provider && c.sessionId);
-        if (last) {
-          e.preventDefault();
-          void resume(last.provider!, last.sessionId!);
-        }
       } else if (/^[1-9]$/.test(e.key)) {
         const agent = agents[Number(e.key) - 1];
         if (agent) navigate(`/agents/${agent.name}`);
@@ -72,7 +62,25 @@ export function AppShell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [agents, closed, navigate, openLaunch, resume]);
+  }, [agents, navigate, openLaunch]);
+
+  // ⌥U reopens the most recently closed agent, like a browser's ⌘⇧T.
+  // Separate capture-phase listener (not the bare-key handler above) so it
+  // works while typing and a focused xterm can't swallow it. e.code: ⌥U is
+  // a macOS dead key (¨); preventDefault also stops the accent composition
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+      if (e.code !== 'KeyU') return;
+      const last = closed?.find((c) => c.provider && c.sessionId);
+      if (!last) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void resume(last.provider!, last.sessionId!);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [closed, resume]);
 
   // Pane chords, capture phase so they beat a focused xterm (which would
   // otherwise relay the keys to the agent's pty) and browser defaults.

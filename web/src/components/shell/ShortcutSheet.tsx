@@ -7,9 +7,9 @@ const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]>
     rows: [
       ['⌘K', 'launch a new agent'],
       ['1–9', 'jump to the nth running agent'],
-      ['u', 'reopen the last closed agent'],
+      ['⌥U', 'reopen the last closed agent'],
       ['g', 'open the wall'],
-      ['c / ⌥C', 'next color theme (⌥C works while typing)'],
+      ['⌥C', 'next color theme'],
       ['?', 'this cheatsheet'],
     ],
   },
