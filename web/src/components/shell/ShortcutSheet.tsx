@@ -10,7 +10,7 @@ const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]>
       ['⌥U', 'reopen the last closed agent'],
       ['g', 'open the wall'],
       ['⌥C', 'next color theme'],
-      ['?', 'this cheatsheet'],
+      ['⌥?', 'this cheatsheet'],
     ],
   },
   {
@@ -45,8 +45,9 @@ const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]>
 
 /**
  * Sidebar keyboard-shortcut reference: a keyboard icon beside the theme
- * picker; the panel opens rightward over the main content. `?` toggles it
- * from anywhere (guarded while typing — "?" belongs in prompts too).
+ * picker; the panel opens rightward over the main content. ⌥? (⌥⇧/)
+ * toggles it from anywhere, typing included — capture phase so a focused
+ * xterm can't swallow it; e.code, since macOS turns the chord into "¿".
  */
 export function ShortcutSheet() {
   const [open, setOpen] = useState(false);
@@ -57,14 +58,13 @@ export function ShortcutSheet() {
         setOpen(false);
         return;
       }
-      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement;
-      if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable) return;
+      if (e.code !== 'Slash' || !e.altKey || !e.shiftKey || e.metaKey || e.ctrlKey) return;
       e.preventDefault();
-      setOpen((v) => !v);
+      e.stopPropagation();
+      if (!e.repeat) setOpen((v) => !v);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [open]);
 
   return (
@@ -97,7 +97,7 @@ export function ShortcutSheet() {
         className={`rounded-md p-2 ${
           open ? 'bg-surface2 text-ink' : 'text-mut hover:bg-surface2 hover:text-ink'
         }`}
-        title="keyboard shortcuts (?)"
+        title="keyboard shortcuts (⌥?)"
       >
         <Keyboard size={15} />
       </button>

@@ -38,9 +38,9 @@ Single-process mode (no Vite dev server): `npm run build && npm start`, then ope
 
 ## Drive it with the keyboard
 
-The dashboard is much faster by hotkey than by mouse — press `?` in the app for the full cheatsheet. The core moves:
+The dashboard is much faster by hotkey than by mouse — press `⌥?` in the app for the full cheatsheet. The core moves:
 
-- **Anywhere**: `⌘K` launch a new agent · `1–9` jump to the nth running agent · `g` open the wall · `⌥U` reopen the last closed agent · `⌥C` next color theme
+- **Anywhere**: `⌘K` launch a new agent · `1–9` jump to the nth running agent · `g` open the wall · `⌥U` reopen the last closed agent · `⌥C` next color theme · `⌥?` cheatsheet
 - **Panels (wall + splits)**: `⌥⇥` / `⌥⇧⇥` focus next/previous · `⌥F` fullscreen · `⌥T` flip chat ↔ terminal · `⌥S` sleep/wake · `⌥↓` jump to latest output · `⌥R` expand the recap strip · `⌘⌥⌫ ×2` kill the agent
 - **Agent page**: `t` toggle the raw terminal · `s` open a split panel · `⏎` / `⇧⏎` send / newline in the composer
 
