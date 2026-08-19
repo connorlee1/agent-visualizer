@@ -28,14 +28,23 @@ Single-process mode (no Vite dev server): `npm run build && npm start`, then ope
 
 ## What it does
 
-- **Home** — running agents as live-preview cards. Status is derived from the pane snapshot: green = working, yellow = waiting for input, **pulsing orange = needs your approval** (also badges the browser tab title). Below, the most recent conversations across all projects.
+- **Home** — running agents as live-preview cards: green = working, yellow = waiting for input, **pulsing orange = needs your approval** (also badges the browser tab title). Status comes from the transcript's own lifecycle markers — and for dashboard-launched Claude agents, from the CLI's own hook events — with pane-text matching as the fallback. Below, the most recent conversations across all projects.
+- **The wall** (`g`) — every running agent tiled as live panes on one screen, built to be worked entirely with the `⌥` panel chords below.
 - **Terminal workspace** (`/agents/:name`) — a real `tmux attach` bridged to xterm.js over a WebSocket. Fully interactive; `tmux attach -t <name>` from a normal terminal works concurrently. The collapsible right-hand panel shows the live, readable transcript of the same conversation.
 - **Projects** — every project directory found in `~/.claude/projects` and `~/.codex/sessions`, with 12-week activity sparkbars.
 - **Transcript reader** — full conversation rendering: markdown, collapsed-by-default tool calls (click to expand input + result), thinking blocks, token counts, branch markers. Huge sessions open instantly (last 200 messages, "show earlier" pages back).
 - **Resume** — any session row or the reader header. Launches `claude --resume <id>` / `codex resume <id>` in a fresh tmux session **in the conversation's original directory** and drops you into its terminal.
 - **Rename** — the ⋮ menu on every agent card and pane header gives an agent a custom name (stored as `@agent_title` on the tmux session, so it survives server restarts). The same menu keeps the details a custom name hides: working directory (click to copy), the linked conversation tag (click to open its transcript), and the raw tmux session name.
 
-Keyboard: `n` new agent · `1–9` jump to agent · `t` toggle transcript panel.
+## Drive it with the keyboard
+
+The dashboard is much faster by hotkey than by mouse — press `?` in the app for the full cheatsheet. The core moves:
+
+- **Anywhere**: `⌘K` launch a new agent · `1–9` jump to the nth running agent · `g` open the wall · `⌥U` reopen the last closed agent · `⌥C` next color theme
+- **Panels (wall + splits)**: `⌥⇥` / `⌥⇧⇥` focus next/previous · `⌥F` fullscreen · `⌥T` flip chat ↔ terminal · `⌥S` sleep/wake · `⌥↓` jump to latest output · `⌥R` expand the recap strip · `⌘⌥⌫ ×2` kill the agent
+- **Agent page**: `t` toggle the raw terminal · `s` open a split panel · `⏎` / `⇧⏎` send / newline in the composer
+
+Letter keys wait while you're typing in a text box; the `⌥` chords work everywhere, even inside a focused terminal.
 
 ## How it works
 
