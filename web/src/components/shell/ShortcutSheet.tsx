@@ -1,0 +1,103 @@
+import { useEffect, useState } from 'react';
+import { Keyboard } from 'lucide-react';
+
+const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]> }> = [
+  {
+    title: 'Anywhere',
+    rows: [
+      ['⌘K', 'launch a new agent'],
+      ['1–9', 'jump to the nth running agent'],
+      ['u', 'reopen the last closed agent'],
+      ['g', 'open the wall'],
+      ['c / ⌥C', 'next color theme (⌥C works while typing)'],
+      ['?', 'this cheatsheet'],
+    ],
+  },
+  {
+    title: 'Panels',
+    rows: [
+      ['⌥⇥ / ⌥⇧⇥', 'focus next / previous panel'],
+      ['⌥S', 'sleep or wake the focused panel'],
+      ['⌥F', 'fullscreen the focused panel (toggle)'],
+      ['⌘⌥⌫ ×2', 'kill the focused panel’s agent'],
+      ['click', 'focus a panel'],
+    ],
+  },
+  {
+    title: 'Agent page',
+    rows: [
+      ['t', 'toggle the raw terminal'],
+      ['s', 'open a split panel beside this one'],
+      ['⏎ / ⇧⏎', 'send · newline, in the composer'],
+    ],
+  },
+  {
+    title: 'Elsewhere',
+    rows: [
+      ['/', 'focus search, on the home page'],
+      ['⌘⏎', 'launch, in the new-agent form'],
+    ],
+  },
+];
+
+/**
+ * Sidebar keyboard-shortcut reference: a keyboard icon beside the theme
+ * picker; the panel opens rightward over the main content. `?` toggles it
+ * from anywhere (guarded while typing — "?" belongs in prompts too).
+ */
+export function ShortcutSheet() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        setOpen(false);
+        return;
+      }
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable) return;
+      e.preventDefault();
+      setOpen((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />}
+      {open && (
+        <div className="absolute bottom-0 left-full z-50 ml-3 max-h-[85vh] w-[300px] overflow-y-auto rounded-lg border border-edge bg-surface py-2 shadow-xl shadow-black/30">
+          {SECTIONS.map((s) => (
+            <div key={s.title} className="px-3 pb-2">
+              <div className="px-1 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-widest text-faint">
+                {s.title}
+              </div>
+              {s.rows.map(([keys, what]) => (
+                <div key={keys} className="flex items-baseline gap-2.5 px-1 py-[3px] text-[12px]">
+                  <span className="w-[88px] shrink-0 font-mono text-[11px] text-[color:var(--ansi-yellow)]">
+                    {keys}
+                  </span>
+                  <span className="text-mut">{what}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="border-t border-edge px-4 pb-1 pt-2 text-[10px] text-faint">
+            letter keys wait while you’re typing in a text box
+          </div>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`rounded-md p-2 ${
+          open ? 'bg-surface2 text-ink' : 'text-mut hover:bg-surface2 hover:text-ink'
+        }`}
+        title="keyboard shortcuts (?)"
+      >
+        <Keyboard size={15} />
+      </button>
+    </div>
+  );
+}

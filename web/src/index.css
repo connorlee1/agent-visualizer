@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+@import '@xterm/xterm/css/xterm.css';
+
+@theme {
+  --color-bg: #0b0e14;
+  --color-surface: #11151c;
+  --color-surface2: #161b24;
+  --color-edge: #1e242e;
+  --color-ink: #e6e9ef;
+  --color-mut: #8b93a3;
+  --color-faint: #5c6370;
+  --color-claude: #d97757;
+  --color-codex: #2dd4bf;
+  --color-ok: #4ade80;
+  --color-warn: #facc15;
+  --color-alert: #fb923c;
+  --color-on-accent: #000000;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* Themable non-utility tokens; lib/themes.ts overrides all of these (and the
+   --color-* tokens above) as inline custom properties on <html>. Defaults
+   match the Terracotta theme so the pre-JS frame looks right. */
+:root {
+  --color-sel: #2a3547;
+  --ansi-black: #1e242e;
+  --ansi-red: #f07178;
+  --ansi-green: #4ade80;
+  --ansi-yellow: #facc15;
+  --ansi-blue: #82aaff;
+  --ansi-magenta: #c792ea;
+  --ansi-cyan: #2dd4bf;
+  --ansi-white: #c7cdd8;
+  --ansi-bright-black: #5c6370;
+  --ansi-bright-red: #ff8b92;
+  --ansi-bright-green: #6ee7a0;
+  --ansi-bright-yellow: #fde047;
+  --ansi-bright-blue: #9ec1ff;
+  --ansi-bright-magenta: #dcaff5;
+  --ansi-bright-cyan: #5eead4;
+  --ansi-bright-white: #e6e9ef;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Ambient wash: the theme's two accents glow softly from opposite corners so
+   every palette is felt at the macro level. Solid-bg surfaces (panes, cards,
+   terminals) sit on top; only page-level chrome picks up the atmosphere. */
+body {
+  background:
+    radial-gradient(1100px 700px at 88% -12%, color-mix(in srgb, var(--color-claude) 9%, transparent), transparent 62%),
+    radial-gradient(1000px 700px at -8% 112%, color-mix(in srgb, var(--color-codex) 7%, transparent), transparent 62%),
+    var(--color-bg);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Pane flash overlays, washed in the pane's own border accent (--tint from
+   Pane; claude accent for untinted panes). Mounted only while flashing.
+   done: gentle double pulse when an agent truly finishes.
+   remind: aggressive strobe for a long-forgotten idle pane. */
+@keyframes flash-done {
+  0%, 100% { opacity: 0; }
+  18%, 42% { opacity: 1; }
+  58% { opacity: 0.15; }
+  78% { opacity: 0.9; }
+}
+@keyframes flash-remind {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+.flash-done-overlay,
+.flash-remind-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: -1px;
+  border-radius: 4px;
+}
+.flash-done-overlay {
+  background: color-mix(in srgb, var(--tint, var(--color-claude)) 20%, transparent);
+  box-shadow: inset 0 0 0 1px var(--tint, var(--color-claude));
+  animation: flash-done 1.2s ease-in-out both;
+}
+.flash-remind-overlay {
+  background: color-mix(in srgb, var(--tint, var(--color-claude)) 32%, transparent);
+  box-shadow: inset 0 0 0 2px var(--tint, var(--color-claude));
+  animation: flash-remind 0.4s ease-in-out 6;
+}
+
+@keyframes pulse-alert-border {
+  0%, 100% { border-color: var(--color-alert); }
+  50% { border-color: color-mix(in srgb, var(--color-alert) 25%, var(--color-edge)); }
+}
+.pulse-alert-border {
+  animation: pulse-alert-border 1.4s ease-in-out infinite;
+}
+
+/* xterm fills its container and blends with the page */
+.xterm-host,
+.xterm-host .xterm,
+.xterm-host .xterm .xterm-viewport {
+  height: 100%;
+  width: 100%;
+}
+.xterm-host .xterm-viewport {
+  background-color: var(--color-bg) !important;
+}
+
+/* rendered assistant markdown */
+.md { font-size: 13px; line-height: 1.6; overflow-wrap: break-word; }
+.md p { margin: 0.35em 0; }
+.md h1, .md h2, .md h3, .md h4 { font-weight: 600; margin: 0.8em 0 0.3em; }
+.md h1 { font-size: 1.25em; } .md h2 { font-size: 1.15em; } .md h3 { font-size: 1.05em; }
+.md ul, .md ol { margin: 0.35em 0; padding-left: 1.4em; }
+.md ul { list-style: disc; } .md ol { list-style: decimal; }
+.md li { margin: 0.15em 0; }
+.md code { font-family: var(--font-mono); font-size: 0.92em; color: var(--ansi-yellow); background: var(--color-surface2); border: 1px solid var(--color-edge); border-radius: 4px; padding: 0.05em 0.3em; }
+.md pre { background: var(--color-bg); border: 1px solid var(--color-edge); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 0.5em 0; }
+.md pre code { background: none; border: none; padding: 0; font-size: 11px; line-height: 1.5; color: var(--color-ink); }
+.md a { color: var(--color-codex); text-decoration: underline; }
+.md blockquote { border-left: 3px solid var(--color-claude); padding-left: 10px; color: var(--color-mut); margin: 0.5em 0; }
+.md table { border-collapse: collapse; margin: 0.5em 0; font-size: 12px; }
+.md th, .md td { border: 1px solid var(--color-edge); padding: 3px 8px; }
+.md hr { border: none; border-top: 1px solid var(--color-edge); margin: 0.8em 0; }
+
+/* chat typing indicator */
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-claude);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* ansi_up preview palette — same tokens as the xterm theme (lib/themes.ts) */
+.ansi-black-fg { color: var(--ansi-black); }
+.ansi-red-fg { color: var(--ansi-red); }
+.ansi-green-fg { color: var(--ansi-green); }
+.ansi-yellow-fg { color: var(--ansi-yellow); }
+.ansi-blue-fg { color: var(--ansi-blue); }
+.ansi-magenta-fg { color: var(--ansi-magenta); }
+.ansi-cyan-fg { color: var(--ansi-cyan); }
+.ansi-white-fg { color: var(--ansi-white); }
+.ansi-bright-black-fg { color: var(--ansi-bright-black); }
+.ansi-bright-red-fg { color: var(--ansi-bright-red); }
+.ansi-bright-green-fg { color: var(--ansi-bright-green); }
+.ansi-bright-yellow-fg { color: var(--ansi-bright-yellow); }
+.ansi-bright-blue-fg { color: var(--ansi-bright-blue); }
+.ansi-bright-magenta-fg { color: var(--ansi-bright-magenta); }
+.ansi-bright-cyan-fg { color: var(--ansi-bright-cyan); }
+.ansi-bright-white-fg { color: var(--ansi-bright-white); }
+.ansi-black-bg { background: var(--ansi-black); }
+.ansi-red-bg { background: var(--ansi-red); }
+.ansi-green-bg { background: var(--ansi-green); }
+.ansi-yellow-bg { background: var(--ansi-yellow); }
+.ansi-blue-bg { background: var(--ansi-blue); }
+.ansi-magenta-bg { background: var(--ansi-magenta); }
+.ansi-cyan-bg { background: var(--ansi-cyan); }
+.ansi-white-bg { background: var(--ansi-white); }
+
+/* ⌥F fullscreen toggle: AppShell stamps data-zoom on the focused pane.
+   position:fixed lifts it out of the split layout to cover the viewport;
+   toggling again (or ⌥Tab, or the pane unmounting) removes it. Reading
+   columns (.center-col) let go of their max-width so fullscreen means
+   full width, not a centered column. */
+[data-pane][data-zoom] {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  border-radius: 0;
+  background: var(--color-bg);
+}
+[data-zoom] .center-col {
+  max-width: none;
+}
+
+::selection {
+  background: var(--color-sel);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border-radius: 5px;
+  border: 2px solid var(--color-bg);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
