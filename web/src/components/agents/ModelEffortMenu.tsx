@@ -142,7 +142,7 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div
-              className="fixed z-50 rounded-md border border-edge bg-surface py-1 text-left font-sans shadow-2xl"
+              className="fixed z-50 rounded-md border border-edge bg-surface py-1 text-left shadow-2xl"
               style={{ top: pos.top, left: pos.left, width: MENU_WIDTH }}
             >
               <div className="flex">
