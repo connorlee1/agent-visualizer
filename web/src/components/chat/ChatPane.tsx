@@ -122,7 +122,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             working ? (
               <div className="flex items-center gap-2.5 py-1 pl-1">
                 <span className="typing-dots"><span /><span /><span /></span>
-                <span className="text-[11px] text-faint">working…</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">working…</span>
               </div>
             ) : null
           }
@@ -184,23 +184,26 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
           )}
           {sendError && <div className="mb-1.5 text-[12px] text-red-400">{sendError}</div>}
           <div className="flex shrink-0 items-end gap-2">
-            <textarea
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              rows={1}
-              placeholder={`Message ${agent.cwd ? basename(agent.cwd) : agent.name}…`}
-              className="max-h-[40vh] flex-1 resize-none overflow-y-auto rounded-lg border border-edge bg-bg px-3 py-2 text-[13px] leading-relaxed outline-none placeholder:text-faint focus:border-faint"
-            />
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-[7px] select-none font-mono text-[13px] font-bold text-claude">❯</span>
+              <textarea
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                rows={1}
+                placeholder={`message ${agent.cwd ? basename(agent.cwd) : agent.name}…`}
+                className="max-h-[40vh] w-full resize-none overflow-y-auto rounded-[4px] border border-edge bg-bg py-2 pl-8 pr-3 font-mono text-[12.5px] leading-relaxed outline-none placeholder:text-faint focus:border-faint"
+              />
+            </div>
             <button
               onClick={toggleSteps}
-              className={`rounded-lg border p-2.5 ${
+              className={`rounded-[4px] border p-2.5 ${
                 showSteps ? 'border-faint text-ink' : 'border-edge text-faint hover:text-mut'
               }`}
               title={showSteps ? 'hide intermediate steps' : 'show intermediate steps'}
@@ -210,7 +213,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             <button
               onClick={() => void send()}
               disabled={!draft.trim()}
-              className="rounded-lg bg-claude/90 p-2.5 text-on-accent hover:bg-claude disabled:opacity-40"
+              className="rounded-[4px] bg-claude/90 p-2.5 text-on-accent hover:bg-claude disabled:opacity-40"
               title="send (Enter)"
             >
               <SendHorizonal size={15} />

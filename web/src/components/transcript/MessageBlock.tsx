@@ -27,15 +27,15 @@ export function MessageBlock({ msg, provider, toolResults, forceToolsOpen, showH
         className="rounded-r-md py-2 pl-3 pr-3"
         style={{ borderLeft: `3px solid ${accent}`, background: `color-mix(in srgb, ${accent} 9%, transparent)` }}
       >
-        <div className="mb-1 flex items-baseline gap-2 text-[11px] font-semibold tracking-wide" style={{ color: accent }}>
-          YOU
-          <span className="font-normal text-faint">{timeOf(msg.timestamp)}</span>
+        <div className="mb-1 flex items-baseline gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: accent }}>
+          ❯ You
+          <span className="font-normal normal-case tracking-normal text-faint">{timeOf(msg.timestamp)}</span>
           {msg.hiddenSiblings ? (
-            <span className="font-normal text-faint">⑂ {msg.hiddenSiblings} earlier attempt{msg.hiddenSiblings > 1 ? 's' : ''} hidden</span>
+            <span className="font-normal normal-case tracking-normal text-faint">⑂ {msg.hiddenSiblings} earlier attempt{msg.hiddenSiblings > 1 ? 's' : ''} hidden</span>
           ) : null}
         </div>
         <ClampedBlock text={texts.map((b) => (b.kind === 'text' ? b.text : '')).join('\n')}>
-          <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+          <div className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed">
             {texts.map((b, i) => (b.kind === 'text' ? <span key={i}>{b.text}</span> : null))}
           </div>
         </ClampedBlock>
@@ -46,9 +46,9 @@ export function MessageBlock({ msg, provider, toolResults, forceToolsOpen, showH
   return (
     <div className="py-0.5">
       {showHeader && (
-        <div className="mb-1 flex items-baseline gap-2 pt-1.5 text-[11px] font-semibold tracking-wide text-mut">
-          ASSISTANT
-          <span className="font-normal text-faint">{timeOf(msg.timestamp)}</span>
+        <div className="mb-1 flex items-baseline gap-2 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-mut">
+          <span style={{ color: accent }}>⏺</span> Assistant
+          <span className="font-normal normal-case tracking-normal text-faint">{timeOf(msg.timestamp)}</span>
           {msg.model && <span className="font-mono font-normal text-[color:var(--ansi-cyan)]">{msg.model.replace(/^claude-/, '')}</span>}
           {msg.usage?.outputTokens != null && (
             <span className="font-normal text-faint">{fmtTokens(msg.usage.outputTokens)} tok</span>

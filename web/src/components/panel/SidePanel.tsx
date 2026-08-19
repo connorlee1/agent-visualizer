@@ -7,7 +7,7 @@ import { agentLabel, truncate } from '../../lib/format';
 import { useDirColor } from '../../lib/useDirColor';
 import { useLinkedSession, useLinkedSummary } from '../../lib/useLinkedSession';
 import { useDoneFlash } from '../../lib/useDoneFlash';
-import { STATUS_COLOR, STATUS_LABEL } from '../../lib/status';
+import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
 import { AgentStatusDot } from '../agents/AgentStatusDot';
 import { AgentMenu } from '../agents/AgentMenu';
 import { ModelEffortMenu } from '../agents/ModelEffortMenu';
@@ -47,8 +47,11 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
       <>
         {agent ? agentLabel(agent, agents) : panel.name}
         {agent && (
-          <span className="ml-2" style={{ color: STATUS_COLOR[agent.status] }}>
-            {STATUS_LABEL[agent.status]}
+          <span
+            className="ml-2 text-[9.5px] font-semibold uppercase tracking-[0.14em]"
+            style={{ color: STATUS_COLOR[agent.status] }}
+          >
+            {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
           </span>
         )}
         {agent && <ModelEffortMenu agent={agent} summary={summary} className="ml-2 text-faint" />}
