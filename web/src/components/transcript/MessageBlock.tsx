@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { ContentBlock, Message, Provider } from '@shared/types';
 import { fmtTokens } from '../../lib/format';
 import { Markdown } from './Markdown';
@@ -10,7 +11,7 @@ type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>;
 const timeOf = (iso?: string) =>
   iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 
-export function MessageBlock({ msg, provider, toolResults, forceToolsOpen, showHeader = true }: {
+function MessageBlockInner({ msg, provider, toolResults, forceToolsOpen, showHeader = true }: {
   msg: Message;
   provider: Provider;
   toolResults: Map<string, ToolResult>;
@@ -81,3 +82,19 @@ export function MessageBlock({ msg, provider, toolResults, forceToolsOpen, showH
     </div>
   );
 }
+
+// Transcript polls hand every message a fresh object identity each cycle, so
+// plain memo never hits; compare by content signature instead. Finished
+// messages never change, which makes re-parsing their markdown on every poll
+// (× every open tile) the single biggest browser cost on the wall.
+const signature = (m: Message): string =>
+  `${m.id}:${m.content.length}:${m.content.reduce((n, b) => n + ('text' in b && typeof b.text === 'string' ? b.text.length : 0), 0)}`;
+
+export const MessageBlock = memo(MessageBlockInner, (prev, next) =>
+  prev.showHeader === next.showHeader &&
+  prev.forceToolsOpen === next.forceToolsOpen &&
+  prev.provider === next.provider &&
+  signature(prev.msg) === signature(next.msg) &&
+  // tool results live in a map keyed by tool id — size shift means new output arrived
+  prev.toolResults.size === next.toolResults.size,
+);

@@ -119,17 +119,31 @@ export interface CodexDbState {
   lastItemMs: number;
 }
 
+// This probe runs per codex agent per poll AND per transcript fingerprint —
+// a short TTL collapses the sqlite spawns without hiding real transitions.
+const stateCache = new Map<string, { at: number; value: CodexDbState | null }>();
+
 /** Turn state straight from thread_turns: an open turn has no completed_at. */
 export async function codexDbState(threadId: string): Promise<CodexDbState | null> {
   if (!UUID_RE.test(threadId)) return null;
+  const cached = stateCache.get(threadId);
+  if (cached && Date.now() - cached.at < 1500) return cached.value;
   const rows = await query<{ completed_at: number | null; status: string; last_item: number | null }>(
     `SELECT t.completed_at, t.status,
             (SELECT MAX(created_at_ms) FROM thread_items WHERE thread_id=t.thread_id) AS last_item
        FROM thread_turns t WHERE t.thread_id='${threadId.toLowerCase()}'
        ORDER BY t.started_at DESC LIMIT 1`,
   );
-  if (!rows || rows.length === 0) return null;
-  const row = rows[0];
-  const terminal = row.completed_at != null || ['completed', 'failed', 'interrupted'].includes(row.status);
-  return { state: terminal ? 'idle' : 'working', lastItemMs: row.last_item ?? 0 };
+  const row = rows?.[0];
+  const value: CodexDbState | null = row
+    ? {
+        state: row.completed_at != null || ['completed', 'failed', 'interrupted'].includes(row.status)
+          ? 'idle'
+          : 'working',
+        lastItemMs: row.last_item ?? 0,
+      }
+    : null;
+  stateCache.set(threadId, { at: Date.now(), value });
+  if (stateCache.size > 200) stateCache.delete(stateCache.keys().next().value as string);
+  return value;
 }

@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { TMUX_BIN } from './config';
+import path from 'node:path';
+import { CLAUDE_HOOKS_FILE, SERVER_PORT, TMUX_BIN } from './config';
 import type { Provider, TmuxAgent } from '../shared/types';
 
 const exec = promisify(execFile);
@@ -163,6 +164,35 @@ export interface CreateAgentOptions {
   fork?: boolean;
 }
 
+// Per-session hook settings injected at launch (claude only): the CLI itself
+// POSTs its lifecycle events to the server, giving a semantic needs-approval
+// signal that works regardless of pane size (see server/hooksignals.ts).
+// The settings live in a FILE because the launch command is typed into the
+// pane's interactive shell, and macOS's TTY canonical input buffer silently
+// truncates lines over 1024 bytes — inline JSON blew straight past that.
+// `exit 0` is load-bearing — PermissionRequest is a BLOCKING hook and a
+// nonzero exit while the server is down could deny the tool call.
+async function ensureClaudeHooksFile(): Promise<void> {
+  const post =
+    `curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- ` +
+    `http://127.0.0.1:${SERVER_PORT}/api/hooks/claude >/dev/null 2>&1; exit 0`;
+  const cmd = [{ type: 'command', command: post }];
+  const json = JSON.stringify({
+    hooks: {
+      PermissionRequest: [{ matcher: '*', hooks: cmd }],
+      PreToolUse: [{ matcher: '*', hooks: cmd }],
+      PostToolUse: [{ matcher: '*', hooks: cmd }],
+      Stop: [{ hooks: cmd }],
+      UserPromptSubmit: [{ hooks: cmd }],
+    },
+  }, null, 2);
+  const existing = await fs.readFile(CLAUDE_HOOKS_FILE, 'utf8').catch(() => null);
+  if (existing !== json) {
+    await fs.mkdir(path.dirname(CLAUDE_HOOKS_FILE), { recursive: true });
+    await fs.writeFile(CLAUDE_HOOKS_FILE, json);
+  }
+}
+
 function buildAgentCommand(opts: CreateAgentOptions): { command: string; sessionId?: string } {
   const { provider, model, permissionMode, initialPrompt, resumeSessionId, fork } = opts;
   if (model && !MODEL_RE.test(model)) throw new TmuxError('invalid model');
@@ -183,6 +213,7 @@ function buildAgentCommand(opts: CreateAgentOptions): { command: string; session
     }
     if (model) parts.push('--model', model);
     if (permissionMode) parts.push('--permission-mode', permissionMode);
+    parts.push('--settings', shq(CLAUDE_HOOKS_FILE));
     if (initialPrompt && !resumeSessionId) parts.push(shq(initialPrompt));
   } else {
     if (resumeSessionId) {
@@ -202,6 +233,7 @@ export async function createAgent(opts: CreateAgentOptions): Promise<{ name: str
   if (!stat?.isDirectory()) throw new TmuxError(`directory does not exist: ${opts.cwd}`);
 
   const { command, sessionId } = buildAgentCommand(opts);
+  if (opts.provider === 'claude') await ensureClaudeHooksFile();
   const name = `agent-${opts.provider}-${randomBytes(3).toString('hex')}`;
 
   await tmux(['new-session', '-d', '-s', name, '-c', opts.cwd, '-x', '220', '-y', '50']);

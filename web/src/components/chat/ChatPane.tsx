@@ -5,7 +5,7 @@ import type { AgentWithStatus } from '../../queries';
 import { useTranscript } from '../../queries';
 import { sendAgentInput } from '../../lib/api';
 import { parseApprovalDialog } from '../../lib/approval';
-import { stripAnsi } from '../../lib/status';
+import { RECAP_IDLE_MS, stripAnsi } from '../../lib/status';
 import { basename } from '../../lib/format';
 import { useLinkedSession } from '../../lib/useLinkedSession';
 import { consumeComposerFocus } from '../../lib/focusAgent';
@@ -110,6 +110,14 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
 
   const working = agent.status === 'working' || !!pending;
 
+  // orientation strip after a real pause — the wall is where recaps get read
+  const showRecap =
+    !!agent.idleSummary &&
+    agent.status === 'waiting' &&
+    agent.lastWriteMs != null &&
+    Date.now() - agent.lastWriteMs > RECAP_IDLE_MS;
+  const [recapOpen, setRecapOpen] = useState(false);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -181,6 +189,24 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
                 </div>
               )}
             </div>
+          )}
+          {showRecap && (
+            // one line on the wall; click to expand to the full summary
+            <button
+              data-recap-toggle
+              onClick={() => setRecapOpen((v) => !v)}
+              title={recapOpen ? 'collapse (⌥R)' : `${agent.idleSummary} (⌥R)`}
+              className="mb-1.5 flex w-full shrink-0 items-baseline gap-1.5 rounded-md border border-edge bg-surface2 px-2 py-0.5 text-left hover:border-faint"
+            >
+              <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-faint">
+                {recapOpen ? '▾' : '▸'} recap
+              </span>
+              <span
+                className={`min-w-0 flex-1 text-[10.5px] leading-snug text-mut ${recapOpen ? '' : 'truncate'}`}
+              >
+                {agent.idleSummary}
+              </span>
+            </button>
           )}
           {sendError && <div className="mb-1.5 text-[12px] text-red-400">{sendError}</div>}
           <div className="flex shrink-0 items-end gap-2">

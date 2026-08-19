@@ -49,7 +49,14 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
-startWatcher((filePath) => broadcast('session-updated', { filePath }));
+// Name the session in the event so clients can invalidate ONE transcript
+// instead of refetching every open chat on every write (~1.5 events/s here).
+const SESSION_FILE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+startWatcher((filePath) => {
+  const sessionId = SESSION_FILE.exec(filePath)?.[1]?.toLowerCase();
+  const provider = filePath.includes('/.codex/') ? 'codex' : 'claude';
+  broadcast('session-updated', { filePath, provider, sessionId });
+});
 
 // Reconcile the persisted live-agent snapshot against tmux once at boot, so
 // agents that died while the server was down land in the closed list even
@@ -60,6 +67,8 @@ listAgents().then(trackAgents).catch(() => { /* tmux not up yet — poll retries
 let lastState = '';
 setInterval(async () => {
   if (!hasClients()) return;
+  // (interval widened 3s→5s: this listing is a spawn fan-out and the browser
+  // polls /api/tmux on its own every 2s anyway)
   try {
     const agents = await listAgents();
     trackAgents(agents);
@@ -69,7 +78,7 @@ setInterval(async () => {
       broadcast('tmux-changed');
     }
   } catch { /* transient tmux hiccup — next tick retries */ }
-}, 3000);
+}, 5000);
 
 server.listen(SERVER_PORT, '127.0.0.1', () => {
   console.log(`agent-visualizer server on http://127.0.0.1:${SERVER_PORT}`);

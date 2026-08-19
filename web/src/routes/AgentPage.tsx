@@ -11,6 +11,7 @@ import { AgentStatusDot } from '../components/agents/AgentStatusDot';
 import { AgentMenu } from '../components/agents/AgentMenu';
 import { ModelEffortMenu } from '../components/agents/ModelEffortMenu';
 import { SnoozeButton } from '../components/agents/SnoozeButton';
+import { WorkingTimer } from '../components/agents/WorkingTimer';
 import { XtermPane } from '../components/terminal/XtermPane';
 import { ChatPane } from '../components/chat/ChatPane';
 import { ConfirmButton } from '../components/ui/ConfirmButton';
@@ -124,6 +125,7 @@ export function AgentPage() {
         style={{ color: STATUS_COLOR[agent.status] }}
       >
         {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
+        {agent.status === 'working' && <WorkingTimer name={agent.name} />}
       </span>
       {hasChat && (
         <button

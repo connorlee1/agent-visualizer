@@ -35,6 +35,11 @@ export interface TmuxAgent {
   lastAgentMessage?: string;
   /** LLM-generated 1-2 sentence recap of what this agent was doing (idle cards). */
   idleSummary?: string;
+  /**
+   * Semantic needs-approval signal pushed by the CLI's own hooks (claude
+   * agents launched by the dashboard). Pane-text regex is the fallback.
+   */
+  approvalPending?: boolean;
   /** ANSI snapshot of the visible pane (for previews + status heuristics). */
   preview: string;
   paneWidth: number;

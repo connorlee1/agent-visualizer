@@ -11,6 +11,7 @@ export const CODEX_SESSIONS_DIR = path.join(HOME, '.codex', 'sessions');
 export const CLOSED_AGENTS_FILE = path.join(HOME, '.agent-visualizer', 'closed-agents.json');
 export const AGENT_NAMES_FILE = path.join(HOME, '.agent-visualizer', 'agent-names.json');
 export const LIVE_AGENTS_FILE = path.join(HOME, '.agent-visualizer', 'live-agents.json');
+export const CLAUDE_HOOKS_FILE = path.join(HOME, '.agent-visualizer', 'claude-hooks.json');
 /** cwd for headless `claude -p` summarizer calls — its transcripts are filtered out of session listings. */
 export const SUMMARIZER_CWD = path.join(HOME, '.agent-visualizer', 'summarizer');
 export const IDLE_SUMMARIES_FILE = path.join(HOME, '.agent-visualizer', 'idle-summaries.json');

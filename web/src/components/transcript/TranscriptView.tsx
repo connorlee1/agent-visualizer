@@ -185,7 +185,7 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
 
   return (
     <div className="relative h-full min-h-0">
-      <div ref={scrollRef} className="h-full overflow-y-auto">
+      <div ref={scrollRef} data-transcript-scroll className="h-full overflow-y-auto">
         <div className={`center-col mx-auto flex flex-col gap-2 px-4 py-4 ${narrow ? '' : 'max-w-[880px]'}`}>
           <div ref={topSentinelRef} />
           {loadingEarlier && (

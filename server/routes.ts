@@ -12,6 +12,7 @@ import { requestIdleNote } from './sessions/summarizer';
 import { dismissClosed, getClosedAgents, getTrackedAgent, noteKilled, noteResumed, trackAgents } from './closedagents';
 import { driveCodexModelPicker } from './codexpicker';
 import { forgetAgentName, getAgentName, rememberAgentName } from './agentnames';
+import { approvalPending, noteClaudeHookEvent } from './hooksignals';
 
 export const router = Router();
 
@@ -218,12 +219,19 @@ async function computeTmuxListing(): Promise<TmuxAgent[]> {
   // codex sessions whose id only resolves once the transcript file is open
   for (const a of agents) {
     if (a.managed && a.sessionId && a.title) rememberAgentName(a.sessionId, a.title);
+    // semantic approval signal pushed by the CLI's own hooks — separate from
+    // the transcript block above, which early-returns when no live path has
+    // resolved yet (fresh agents). Skipped once the turn is provably over
+    // (an esc'd dialog ends the turn without a clearing hook event).
+    if (a.agentRunning && a.turnState !== 'idle' && approvalPending(a.sessionId ?? a.resumedFrom)) {
+      a.approvalPending = true;
+    }
   }
   return agents;
 }
 
 router.get('/tmux', asyncRoute(async (_req, res) => {
-  if (tmuxListingCache && Date.now() - tmuxListingCache.at < 1000) {
+  if (tmuxListingCache && Date.now() - tmuxListingCache.at < 2000) {
     res.json(tmuxListingCache.agents);
     return;
   }
@@ -238,6 +246,21 @@ router.get('/tmux', asyncRoute(async (_req, res) => {
       });
   }
   res.json(await tmuxListingInFlight);
+}));
+
+// Receives every hook event from dashboard-launched claude agents (the hook
+// command is injected at launch via --settings; see claudeHookSettings).
+router.post('/hooks/claude', asyncRoute(async (req, res) => {
+  const sessionId = String(req.body?.session_id ?? '');
+  const event = String(req.body?.hook_event_name ?? '');
+  if (sessionId && event) {
+    noteClaudeHookEvent(sessionId, event);
+    // approval state changes should reach the UI on the next poll, not a
+    // second later from the listing cache
+    invalidateTmuxListing();
+    if (event === 'PermissionRequest') broadcast('tmux-changed');
+  }
+  res.status(204).end();
 }));
 
 router.get('/tmux/closed', asyncRoute(async (_req, res) => {

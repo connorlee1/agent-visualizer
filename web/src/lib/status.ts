@@ -7,9 +7,20 @@ export const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
 
 // Dialog-shaped text only — option cursors and explicit approval prompts.
 // Loose words like "permission"/"approve" appear in normal output too.
-// ❯ N. (any number): a tall dialog can be scrolled so the cursor sits on a
-// later option, and the "1." line may not be drawn at all in a small pane.
-const APPROVAL_RE = /do you (want to|approve)|❯\s*\d+\.|\(y\/n\)|allow this|waiting for (your )?approval|trust th(e|is)/i;
+// Patterns are matched against REAL captures of both CLIs' dialogs:
+// - claude cursor is ❯, codex cursor is › — any option number, since a tall
+//   dialog can be scrolled so the cursor isn't on "1." (bare > is excluded:
+//   it's a markdown quote in transcript output)
+// - codex asks "Would you like to run/apply/make the following …"
+// - hint rows ("Press enter to confirm…", option 3's "tell X what to do
+//   differently") anchor to the dialog BOTTOM, so they survive a small pane
+//   that draws only the last few dialog lines
+const APPROVAL_RE =
+  /do you (want to|approve)|[❯›]\s*\d+\.|\(y\/n\)|allow this|waiting for (your )?approval|trust th(e|is)|would you like to (run|apply|make) the following|press enter to (confirm|continue)|tell (claude|codex) what to do differently/i;
+
+// Idle long enough that you've likely lost the thread — recap UIs (AgentCard,
+// ChatPane banner) show the LLM idle summary past this point.
+export const RECAP_IDLE_MS = 60_000;
 
 // Fallback window for agents with no linked transcript at all.
 const FALLBACK_WRITE_MS = 12_000;
@@ -33,10 +44,12 @@ export function deriveStatus(
   opts: { changedRecently: boolean; lastWriteAt?: number },
 ): AgentStatus {
   if (!agent.agentRunning) return 'exited';
+  // semantic signal from the CLI's own hooks beats pane-text matching; the
+  // regex remains for codex and agents launched outside the dashboard.
   // the whole 30-line preview: a tall dialog's cursor line can sit further
   // up than the old 15-line window reached
   const tail = stripAnsi(agent.preview).split('\n').slice(-30).join('\n');
-  if (APPROVAL_RE.test(tail)) return 'needs-approval';
+  if (agent.approvalPending || APPROVAL_RE.test(tail)) return 'needs-approval';
 
   const lastWrite = agent.lastWriteMs ?? opts.lastWriteAt;
   if (agent.turnState === 'idle') return 'waiting';

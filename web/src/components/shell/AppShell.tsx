@@ -84,8 +84,55 @@ export function AppShell() {
   // zoom with it) — primary pane when none is focused. ⌥C cycles the theme
   // from anywhere. e.code, since macOS turns ⌥S/⌥F/⌥C into "ß"/"ƒ"/"ç"
   useEffect(() => {
+    // FLIP zoom animation: the pane grows from its slot into the viewport,
+    // and shrinks back onto it on exit. Pure sugar — to revert to instant
+    // snaps, delete clearFx/runFx/zoomIn, call setAttribute('data-zoom', '')
+    // where zoomIn() is called, and keep only removeAttribute in unzoom.
+    let fxTimer: number | undefined;
+    const clearFx = (el: HTMLElement) => {
+      el.style.transform = el.style.transition = el.style.transformOrigin = '';
+      el.style.position = el.style.zIndex = '';
+    };
+    const runFx = (el: HTMLElement, from: string) => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        clearFx(el);
+        return;
+      }
+      el.style.transformOrigin = '0 0';
+      el.style.transform = from;
+      void el.offsetWidth; // flush, so the start state paints untransitioned
+      el.style.transition = 'transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+      el.style.transform = '';
+      window.clearTimeout(fxTimer);
+      fxTimer = window.setTimeout(() => clearFx(el), 220);
+    };
+    const zoomIn = (pane: HTMLElement) => {
+      const rect = pane.getBoundingClientRect();
+      pane.setAttribute('data-zoom', '');
+      runFx(
+        pane,
+        `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / window.innerWidth}, ${
+          rect.height / window.innerHeight
+        })`,
+      );
+    };
     const unzoom = () => {
-      document.querySelectorAll('[data-zoom]').forEach((el) => el.removeAttribute('data-zoom'));
+      document.querySelectorAll<HTMLElement>('[data-zoom]').forEach((el) => {
+        el.removeAttribute('data-zoom');
+        clearFx(el);
+        const rect = el.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        // back in normal flow, the pane must paint above its siblings while
+        // it shrinks from the viewport down onto its slot
+        el.style.position = 'relative';
+        el.style.zIndex = '80';
+        runFx(
+          el,
+          `translate(${-rect.left}px, ${-rect.top}px) scale(${window.innerWidth / rect.width}, ${
+            window.innerHeight / rect.height
+          })`,
+        );
+      });
     };
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey) return;
@@ -115,14 +162,33 @@ export function AppShell() {
         e.stopPropagation();
         if (e.repeat) return;
         const zoomed = document.querySelector('[data-zoom]');
+        const pane = focused ?? panes[0];
         if (zoomed) unzoom();
-        else (focused ?? panes[0])?.setAttribute('data-zoom', '');
+        else if (pane) zoomIn(pane);
+      } else if (e.code === 'KeyR' && !e.shiftKey) {
+        // ⌥R expands/collapses the focused pane's recap strip (ChatPane
+        // renders it only when an idle summary exists — no strip, no-op)
+        const pane = focused ?? panes[0];
+        const recap = pane?.querySelector<HTMLElement>('[data-recap-toggle]');
+        if (!recap) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) recap.click();
       } else if (e.code === 'KeyC' && !e.shiftKey) {
         // ⌥C: bare `c` cycles the theme too, but only outside text inputs —
         // and since click-to-focus, a composer or terminal usually has focus
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat) nudgeTheme();
+      } else if (e.key === 'ArrowDown' && !e.shiftKey) {
+        // ⌥↓ jumps the focused pane to the latest output: transcript scroll
+        // (which also re-engages live following) or xterm scrollback
+        const pane = focused ?? panes[0];
+        const scroller = pane?.querySelector<HTMLElement>('[data-transcript-scroll], .xterm-viewport');
+        if (!scroller) return;
+        e.preventDefault();
+        e.stopPropagation();
+        scroller.scrollTop = scroller.scrollHeight;
       } else if (e.code === 'KeyT' && !e.shiftKey) {
         // ⌥T flips the focused pane chat ↔ terminal by clicking its own
         // control: a side panel's in-place flip, or the primary/terminal

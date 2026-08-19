@@ -107,10 +107,20 @@ export function useServerEvents(): void {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['closed-agents'] });
     });
-    es.addEventListener('session-updated', () => {
+    es.addEventListener('session-updated', (ev) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['transcript'] });
+      // target the one transcript the event names — refetching every open
+      // chat ~1.5×/s was a major browser + server churn source
+      let payload: { provider?: string; sessionId?: string } = {};
+      try {
+        payload = JSON.parse((ev as MessageEvent).data ?? '{}');
+      } catch { /* old server without payload */ }
+      if (payload.sessionId) {
+        queryClient.invalidateQueries({ queryKey: ['transcript', payload.provider, payload.sessionId] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['transcript'] });
+      }
     });
     return () => es.close();
   }, [queryClient]);

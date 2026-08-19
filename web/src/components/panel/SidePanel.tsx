@@ -12,6 +12,7 @@ import { AgentStatusDot } from '../agents/AgentStatusDot';
 import { AgentMenu } from '../agents/AgentMenu';
 import { ModelEffortMenu } from '../agents/ModelEffortMenu';
 import { SnoozeButton } from '../agents/SnoozeButton';
+import { WorkingTimer } from '../agents/WorkingTimer';
 import { XtermPane } from '../terminal/XtermPane';
 import { TranscriptView } from '../transcript/TranscriptView';
 import { ChatPane } from '../chat/ChatPane';
@@ -52,6 +53,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
             style={{ color: STATUS_COLOR[agent.status] }}
           >
             {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
+            {agent.status === 'working' && <WorkingTimer name={agent.name} />}
           </span>
         )}
         {agent && <ModelEffortMenu agent={agent} summary={summary} className="ml-2 text-faint" />}

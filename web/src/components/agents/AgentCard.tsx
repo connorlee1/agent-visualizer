@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router';
 import type { Provider } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
-import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
+import { RECAP_IDLE_MS, STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
 import { basename, uptime } from '../../lib/format';
 import { dimmed } from '../../lib/dirColor';
 import { useDirColor } from '../../lib/useDirColor';
@@ -13,9 +13,6 @@ const providerColor: Record<Provider, string> = {
   claude: 'var(--color-claude)',
   codex: 'var(--color-codex)',
 };
-
-// Idle long enough that you've likely lost the thread — show the recap.
-const RECAP_IDLE_MS = 60_000;
 
 export function AgentCard({ agent }: { agent: AgentWithStatus }) {
   const navigate = useNavigate();

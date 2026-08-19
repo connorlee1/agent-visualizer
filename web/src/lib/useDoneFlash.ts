@@ -39,6 +39,11 @@ interface Entry {
   flash: boolean;
   /** Aggressive long-idle strobe currently showing. */
   remind: boolean;
+  /** Previous status fed to update() — turn-boundary detection. */
+  lastStatus?: AgentStatus;
+  /** When the dashboard observed the current turn start (header timer).
+      Client-observed: a page reload restarts the count. */
+  workingSince?: number;
   confirmTimer?: number;
   flashTimer?: number;
   repeatTimer?: number;
@@ -181,6 +186,14 @@ function armRemind(name: string) {
 
 function update(name: string, status: AgentStatus | undefined) {
   const e = entryFor(name);
+  const prev = e.lastStatus;
+  e.lastStatus = status;
+  // A turn opens on entering working OR needs-approval from an idle state
+  // (an approval dialog can be the first visible sign of an open turn).
+  // working ⇄ needs-approval mid-turn keeps the original start.
+  const turnOpen = status === 'working' || status === 'needs-approval';
+  const wasOpen = prev === 'working' || prev === 'needs-approval';
+  if (turnOpen && !wasOpen) e.workingSince = Date.now();
   if (status === 'working') {
     reset(name);
     e.wasWorking = true;
@@ -224,6 +237,11 @@ export function syncDoneFlash(list: ReadonlyArray<{ name: string; status: AgentS
 /** Whether an agent is currently slept — lets panes avoid stealing focus. */
 export function isDoneFlashMuted(name: string): boolean {
   return entryFor(name).muted;
+}
+
+/** Observed start of the agent's current turn (undefined if never seen working). */
+export function workingSinceOf(name: string): number | undefined {
+  return entries.get(name)?.workingSince;
 }
 
 // Cross-tab sync: the mute list is per-origin localStorage, but each tab's
