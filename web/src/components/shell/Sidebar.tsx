@@ -8,7 +8,7 @@ import { ShortcutSheet } from './ShortcutSheet';
 import { agentLabel } from '../../lib/format';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium ${
+  `flex items-center gap-2.5 rounded-md px-3 py-2 font-mono text-[12.5px] font-medium ${
     isActive
       ? 'bg-claude/12 text-ink shadow-[inset_2px_0_0_var(--color-claude)]'
       : 'text-mut hover:bg-surface2 hover:text-ink'
@@ -20,15 +20,16 @@ export function Sidebar() {
 
   return (
     <aside className="flex w-[224px] shrink-0 flex-col border-r border-edge bg-surface">
-      <div className="flex items-center gap-2 px-5 pb-4 pt-5">
-        <span className="text-claude">◆</span>
-        <span className="text-[14px] font-semibold tracking-wide">agents</span>
+      <div className="flex items-baseline gap-1.5 px-5 pb-4 pt-5 font-mono">
+        <span className="font-bold text-claude">❯</span>
+        <span className="text-[15px] font-bold tracking-tight">agents</span>
+        <span className="blink-cursor self-center" />
       </div>
 
       <div className="px-3 pb-3">
         <button
           onClick={() => openLaunch()}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-claude/90 py-2 text-[13px] font-semibold text-on-accent hover:bg-claude"
+          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-claude/90 py-2 font-mono text-[12.5px] font-semibold text-on-accent hover:bg-claude"
         >
           <Plus size={15} strokeWidth={2.5} /> New Agent
         </button>
@@ -54,7 +55,7 @@ export function Sidebar() {
 
       {agents.length > 0 && (
         <div className="mt-6 px-3">
-          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-faint">
+          <div className="px-3 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-faint">
             Running
           </div>
           <div className="flex flex-col gap-0.5">
@@ -63,7 +64,7 @@ export function Sidebar() {
                 key={agent.name}
                 to={`/agents/${agent.name}`}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] ${
+                  `flex items-center gap-2.5 rounded-md px-3 py-1.5 font-mono text-[12px] ${
                     isActive
                       ? 'bg-claude/12 text-ink shadow-[inset_2px_0_0_var(--color-claude)]'
                       : 'text-mut hover:bg-surface2 hover:text-ink'
@@ -84,7 +85,7 @@ export function Sidebar() {
         </div>
         <ShortcutSheet />
       </div>
-      <div className="px-6 pb-4 pt-1 text-[10px] text-faint">
+      <div className="px-6 pb-4 pt-1 font-mono text-[10px] text-faint">
         <span className="text-[color:var(--ansi-yellow)]">⌘K</span> new ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">g</span> wall ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">c</span> theme ·{' '}

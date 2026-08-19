@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router';
 import type { Provider } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
-import { STATUS_LABEL, STATUS_COLOR } from '../../lib/status';
+import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
 import { basename, uptime } from '../../lib/format';
 import { dimmed } from '../../lib/dirColor';
 import { useDirColor } from '../../lib/useDirColor';
@@ -37,7 +37,7 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
       onKeyDown={(e) => {
         if (e.key === 'Enter' && e.target === e.currentTarget) open();
       }}
-      className={`w-full cursor-pointer rounded-xl border bg-surface text-left transition-colors hover:bg-surface2 ${
+      className={`w-full cursor-pointer rounded-[5px] border bg-surface text-left transition-colors hover:bg-surface2 ${
         needsApproval ? 'pulse-alert-border border-alert' : 'border-edge'
       }`}
       style={{
@@ -49,10 +49,10 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
     >
       <div className="flex items-center gap-2.5 px-4 pb-2.5 pt-3.5">
         <AgentStatusDot status={agent.status} />
-        <span className="truncate text-[14px] font-semibold" title={agent.cwd}>
+        <span className="truncate font-mono text-[13px] font-semibold" title={agent.cwd}>
           {agent.title ?? (agent.cwd ? basename(agent.cwd) : agent.name)}
         </span>
-        <span className="ml-auto shrink-0 text-[11px] text-faint">{uptime(agent.createdAt)}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-faint">{uptime(agent.createdAt)}</span>
         <AgentMenu agent={agent} />
       </div>
       <div className="px-3 pb-3">
@@ -84,13 +84,18 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
           )}
         </div>
       )}
-      <div className="flex items-center border-t border-edge px-4 py-2 text-[12px]">
-        <span style={{ color: STATUS_COLOR[agent.status] }}>
-          {needsApproval && '⚠ '}
-          {STATUS_LABEL[agent.status]}
+      <div className="flex items-center border-t border-edge px-4 py-2">
+        <span
+          className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]"
+          style={{ color: STATUS_COLOR[agent.status] }}
+        >
+          {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
         </span>
         {agent.provider && (
-          <span className="ml-auto text-[11px]" style={{ color: providerColor[agent.provider] }}>
+          <span
+            className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em]"
+            style={{ color: providerColor[agent.provider] }}
+          >
             {agent.provider}
           </span>
         )}

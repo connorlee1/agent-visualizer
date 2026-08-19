@@ -30,6 +30,7 @@ export function ClosedAgentRow({ entry, onError }: {
       onClick={() => resumable && navigate(`/s/${entry.provider}/${entry.sessionId}`)}
       className={`group flex items-center gap-3.5 px-4 py-3 hover:bg-surface2 ${resumable ? 'cursor-pointer' : ''}`}
     >
+      <span className={`-mr-1.5 w-2 shrink-0 select-none text-[12px] font-bold text-transparent ${resumable ? 'group-hover:text-claude' : ''}`}>❯</span>
       <span
         className="h-2 w-2 shrink-0 rounded-full opacity-60"
         style={{ backgroundColor: dotColor }}

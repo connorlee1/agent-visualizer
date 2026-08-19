@@ -65,7 +65,7 @@ export function HistoryPage() {
         <div className="mx-auto max-w-[760px] px-8 py-8">
           <div className="flex items-center gap-3 pb-1">
             <span className="h-[16px] w-[3px] shrink-0 self-center rounded-full bg-claude" />
-            <h1 className="truncate text-[18px] font-semibold">{selected ? selected.name : 'All conversations'}</h1>
+            <h1 className="truncate font-mono text-[17px] font-semibold tracking-tight">{selected ? selected.name : 'All conversations'}</h1>
             {selected && (
               <button
                 onClick={() => openLaunch({ cwd: selected.path })}
@@ -97,7 +97,7 @@ export function HistoryPage() {
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 text-[12px] ${
+                  className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                     filter === f
                       ? `bg-surface2 ${f === 'claude' ? 'text-claude' : f === 'codex' ? 'text-codex' : 'text-ink'}`
                       : 'text-mut hover:text-ink'

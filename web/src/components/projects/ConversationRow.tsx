@@ -20,6 +20,7 @@ export function ConversationRow({ session, showProject = true, onError }: {
       onClick={() => navigate(`/s/${session.provider}/${session.id}`)}
       className="group flex cursor-pointer items-center gap-3.5 px-4 py-3 hover:bg-surface2"
     >
+      <span className="-mr-1.5 w-2 shrink-0 select-none text-[12px] font-bold text-transparent group-hover:text-claude">❯</span>
       <span
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ backgroundColor: dotColor }}

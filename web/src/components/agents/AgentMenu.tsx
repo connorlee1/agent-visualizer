@@ -72,7 +72,7 @@ export function AgentMenu({ agent }: { agent: TmuxAgent }) {
 
   return (
     // stopPropagation: this menu lives inside clickable cards/headers
-    <div className="relative shrink-0 font-sans" onClick={(e) => e.stopPropagation()}>
+    <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={() => (open ? close() : setOpen(true))}
         className="rounded p-1 text-mut hover:bg-surface2 hover:text-ink"

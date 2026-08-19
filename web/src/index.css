@@ -58,7 +58,7 @@ body {
     var(--color-bg);
   background-attachment: fixed;
   color: var(--color-ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
@@ -69,6 +69,20 @@ body {
 }
 .pulse-dot {
   animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* console restyle: the wordmark's block cursor — with the approval pulse,
+   the only idle motion in the app */
+.blink-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  background: var(--color-claude);
+  animation: blink-cursor 1.2s steps(1) infinite;
+}
+@keyframes blink-cursor { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .blink-cursor { animation: none; }
 }
 
 /* Pane flash overlays, washed in the pane's own border accent (--tint from
@@ -125,8 +139,8 @@ body {
    dimmed→full tint border shift is too subtle (especially on light themes,
    where resting tints are already strong). The focused pane gets a second
    ring in its accent — doubling the border weight, not just shifting hue.
-   (An outer glow was tried and rejected as tacky.) Alert panes keep their
-   pulse as the stronger signal. */
+   (An outer glow was tried and rejected as tacky; so were reticle corner
+   brackets.) Alert panes keep their pulse as the stronger signal. */
 [data-pane]:focus-within:not(.pulse-alert-border) {
   box-shadow: 0 0 0 1px var(--tint, var(--color-claude));
 }
@@ -142,8 +156,9 @@ body {
   background-color: var(--color-bg) !important;
 }
 
-/* rendered assistant markdown */
-.md { font-size: 13px; line-height: 1.6; overflow-wrap: break-word; }
+/* rendered assistant markdown (mono like everything else; a half-step
+   smaller since mono runs wider than the old sans at the same size) */
+.md { font-size: 12.5px; line-height: 1.62; overflow-wrap: break-word; }
 .md p { margin: 0.35em 0; }
 .md h1, .md h2, .md h3, .md h4 { font-weight: 600; margin: 0.8em 0 0.3em; }
 .md h1 { font-size: 1.25em; } .md h2 { font-size: 1.15em; } .md h3 { font-size: 1.05em; }
