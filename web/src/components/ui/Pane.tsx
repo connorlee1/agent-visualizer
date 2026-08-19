@@ -99,8 +99,8 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
           alert
             ? 'pulse-alert-border border-alert'
             : tint
-              ? 'border-(--tint-dim) focus-within:border-(--tint)'
-              : 'border-edge focus-within:border-claude/70'
+              ? 'border-(--tint-dim)'
+              : 'border-edge'
         }`}
       >
         <div data-pane-header className="flex h-7 shrink-0 items-center gap-2 rounded-t-[3px] border-b border-edge bg-surface px-2.5">

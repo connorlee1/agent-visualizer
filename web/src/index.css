@@ -135,32 +135,29 @@ body {
   animation: pulse-alert-border 1.4s ease-in-out infinite;
 }
 
-/* Which pane holds focus must read at a glance on a crowded wall: the 1px
-   dimmed→full tint border shift is too subtle (especially on light themes,
-   where resting tints are already strong). The focused pane gets a second
-   ring in its accent — doubling the border weight, not just shifting hue.
-   (An outer glow was tried and rejected as tacky.) Alert panes keep their
-   pulse as the stronger signal. */
+/* Focus signal, console-style: the reticle corners are the primary cue;
+   the pane border itself only takes a gentle half-step toward its tint
+   (no full-strength ring — reticle + ring together read as shouting).
+   Alert panes keep the pulse as the stronger signal. */
 [data-pane]:focus-within:not(.pulse-alert-border) {
-  box-shadow: 0 0 0 1px var(--tint, var(--color-claude));
+  border-color: color-mix(in srgb, var(--tint, var(--color-claude)) 55%, var(--color-edge));
 }
 
 /* Console reticle: corner brackets on the focused (or ⌥F-zoomed) pane,
-   drawn in the pane's tint. Alert panes keep the pulse as the stronger
-   signal, so brackets stay hidden there. */
+   drawn in the pane's tint at full strength. */
 .reticle-c {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 15px;
+  height: 15px;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.12s ease;
   z-index: 40;
 }
-.reticle-tl { top: -3px; left: -3px; border-top: 2px solid var(--tint, var(--color-claude)); border-left: 2px solid var(--tint, var(--color-claude)); }
-.reticle-tr { top: -3px; right: -3px; border-top: 2px solid var(--tint, var(--color-claude)); border-right: 2px solid var(--tint, var(--color-claude)); }
-.reticle-bl { bottom: -3px; left: -3px; border-bottom: 2px solid var(--tint, var(--color-claude)); border-left: 2px solid var(--tint, var(--color-claude)); }
-.reticle-br { bottom: -3px; right: -3px; border-bottom: 2px solid var(--tint, var(--color-claude)); border-right: 2px solid var(--tint, var(--color-claude)); }
+.reticle-tl { top: -3px; left: -3px; border-top: 2.5px solid var(--tint, var(--color-claude)); border-left: 2.5px solid var(--tint, var(--color-claude)); }
+.reticle-tr { top: -3px; right: -3px; border-top: 2.5px solid var(--tint, var(--color-claude)); border-right: 2.5px solid var(--tint, var(--color-claude)); }
+.reticle-bl { bottom: -3px; left: -3px; border-bottom: 2.5px solid var(--tint, var(--color-claude)); border-left: 2.5px solid var(--tint, var(--color-claude)); }
+.reticle-br { bottom: -3px; right: -3px; border-bottom: 2.5px solid var(--tint, var(--color-claude)); border-right: 2.5px solid var(--tint, var(--color-claude)); }
 [data-pane]:focus-within:not(.pulse-alert-border) .reticle-c,
 [data-pane][data-zoom]:not(.pulse-alert-border) .reticle-c {
   opacity: 1;
