@@ -97,7 +97,7 @@ export function HistoryPage() {
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 text-[12px] ${
+                  className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                     filter === f
                       ? `bg-surface2 ${f === 'claude' ? 'text-claude' : f === 'codex' ? 'text-codex' : 'text-ink'}`
                       : 'text-mut hover:text-ink'

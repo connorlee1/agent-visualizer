@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Columns2, SquareTerminal, X } from 'lucide-react';
 import { useAgents, useKillAgent } from '../queries';
-import { STATUS_LABEL, STATUS_COLOR } from '../lib/status';
+import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../lib/status';
 import { agentLabel, basename } from '../lib/format';
 import { useLinkedSession, useLinkedSummary } from '../lib/useLinkedSession';
 import { useDoneFlash } from '../lib/useDoneFlash';
@@ -119,8 +119,11 @@ export function AgentPage() {
 
   const frameActions = (
     <>
-      <span className="mr-1 hidden text-[11px] sm:inline" style={{ color: STATUS_COLOR[agent.status] }}>
-        {STATUS_LABEL[agent.status]}
+      <span
+        className="mr-1 hidden font-mono text-[10px] font-semibold uppercase tracking-[0.14em] sm:inline"
+        style={{ color: STATUS_COLOR[agent.status] }}
+      >
+        {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
       </span>
       {hasChat && (
         <button

@@ -136,7 +136,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
           {agent.status === 'needs-approval' && (
             <div className="mb-2.5 flex min-h-0 flex-col overflow-y-auto rounded-lg border border-alert/50 bg-alert/10 p-2.5">
               <div className="flex shrink-0 items-center gap-2">
-                <span className="text-[12px] font-medium text-alert">⚠ The agent is waiting for your approval</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-alert">▲ Approval required</span>
                 <span className="ml-auto min-w-0 truncate text-[11px] text-faint">keys are pressed in the agent’s terminal</span>
                 {dialog?.multiSelect && (
                   <button

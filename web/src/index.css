@@ -145,6 +145,27 @@ body {
   box-shadow: 0 0 0 1px var(--tint, var(--color-claude));
 }
 
+/* Console reticle: corner brackets on the focused (or ⌥F-zoomed) pane,
+   drawn in the pane's tint. Alert panes keep the pulse as the stronger
+   signal, so brackets stay hidden there. */
+.reticle-c {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 40;
+}
+.reticle-tl { top: -3px; left: -3px; border-top: 2px solid var(--tint, var(--color-claude)); border-left: 2px solid var(--tint, var(--color-claude)); }
+.reticle-tr { top: -3px; right: -3px; border-top: 2px solid var(--tint, var(--color-claude)); border-right: 2px solid var(--tint, var(--color-claude)); }
+.reticle-bl { bottom: -3px; left: -3px; border-bottom: 2px solid var(--tint, var(--color-claude)); border-left: 2px solid var(--tint, var(--color-claude)); }
+.reticle-br { bottom: -3px; right: -3px; border-bottom: 2px solid var(--tint, var(--color-claude)); border-right: 2px solid var(--tint, var(--color-claude)); }
+[data-pane]:focus-within:not(.pulse-alert-border) .reticle-c,
+[data-pane][data-zoom]:not(.pulse-alert-border) .reticle-c {
+  opacity: 1;
+}
+
 /* xterm fills its container and blends with the page */
 .xterm-host,
 .xterm-host .xterm,
