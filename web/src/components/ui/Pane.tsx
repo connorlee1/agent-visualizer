@@ -99,8 +99,8 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
           alert
             ? 'pulse-alert-border border-alert'
             : tint
-              ? 'border-(--tint-dim)'
-              : 'border-edge'
+              ? 'border-(--tint-dim) focus-within:border-(--tint)'
+              : 'border-edge focus-within:border-claude/70'
         }`}
       >
         <div data-pane-header className="flex h-7 shrink-0 items-center gap-2 rounded-t-[3px] border-b border-edge bg-surface px-2.5">
@@ -111,11 +111,6 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
           <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden rounded-b-[3px] bg-bg">{children}</div>
-        {/* reticle corners: the console skin's focus signal, in the pane's tint */}
-        <i aria-hidden className="reticle-c reticle-tl" />
-        <i aria-hidden className="reticle-c reticle-tr" />
-        <i aria-hidden className="reticle-c reticle-bl" />
-        <i aria-hidden className="reticle-c reticle-br" />
         {remind ? (
           <div className="flash-remind-overlay z-30" />
         ) : (
