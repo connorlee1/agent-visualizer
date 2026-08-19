@@ -226,6 +226,35 @@ export function isDoneFlashMuted(name: string): boolean {
   return entryFor(name).muted;
 }
 
+// Cross-tab sync: the mute list is per-origin localStorage, but each tab's
+// module reads it only at load. Without this, an agent muted in one dashboard
+// tab/window stays bright (moon unfilled, no dim) in every other open tab —
+// seen live. The storage event fires in all tabs except the writer.
+window.addEventListener('storage', (ev) => {
+  if (ev.key !== MUTE_KEY) return;
+  let next: Set<string>;
+  try {
+    next = new Set(JSON.parse(ev.newValue ?? '[]') as string[]);
+  } catch {
+    return;
+  }
+  mutedNames.clear();
+  next.forEach((n) => mutedNames.add(n));
+  for (const [name, e] of entries) {
+    const m = next.has(name);
+    if (m === e.muted) continue;
+    e.muted = m;
+    if (m) {
+      stopFlashing(e);
+    } else {
+      stopReminding(name);
+      armRemind(name);
+      ring(name);
+    }
+  }
+  emit();
+});
+
 /** Standing mute: while set, this agent never flashes. Unmuting mid-episode rings. */
 export function toggleDoneFlashMute(name: string): void {
   const e = entryFor(name);
