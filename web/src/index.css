@@ -71,6 +71,20 @@ body {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+/* console restyle: the wordmark's block cursor — with the approval pulse,
+   the only idle motion in the app */
+.blink-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  background: var(--color-claude);
+  animation: blink-cursor 1.2s steps(1) infinite;
+}
+@keyframes blink-cursor { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .blink-cursor { animation: none; }
+}
+
 /* Pane flash overlays, washed in the pane's own border accent (--tint from
    Pane; claude accent for untinted panes). Mounted only while flashing.
    done: gentle double pulse when an agent truly finishes.

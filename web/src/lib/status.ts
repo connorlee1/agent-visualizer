@@ -64,3 +64,19 @@ export const STATUS_LABEL: Record<AgentStatus, string> = {
   waiting: 'waiting for input',
   exited: 'agent exited',
 };
+
+/** Readout glyphs for the console skin: `● WORKING`, `▲ APPROVAL`, … */
+export const STATUS_GLYPH: Record<AgentStatus, string> = {
+  working: '●',
+  'needs-approval': '▲',
+  waiting: '◌',
+  exited: '■',
+};
+
+/** Short uppercase-ready label for readout chips (label text set via CSS). */
+export const STATUS_SHORT: Record<AgentStatus, string> = {
+  working: 'working',
+  'needs-approval': 'approval',
+  waiting: 'waiting',
+  exited: 'exited',
+};

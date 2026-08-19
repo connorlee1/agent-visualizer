@@ -51,8 +51,8 @@ export function HomePage() {
     <div className="mx-auto max-w-[1000px] px-8 py-8">
       <div className="flex items-baseline gap-3 pb-4">
         <span className="h-[16px] w-[3px] self-center rounded-full bg-claude" />
-        <h1 className="text-[18px] font-semibold">Agents</h1>
-        {agents.length > 0 && <span className="text-[13px] text-ok">{agents.length} running</span>}
+        <h1 className="font-mono text-[17px] font-semibold tracking-tight">Agents</h1>
+        {agents.length > 0 && <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-ok">{agents.length} running</span>}
         <div className="relative ml-auto w-[280px] self-center">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input
@@ -100,7 +100,7 @@ export function HomePage() {
           {shownClosed.length > 0 && (
             <>
               <div className="flex items-baseline gap-3 pb-3 pt-10">
-                <h2 className="text-[15px] font-semibold">Recently closed</h2>
+                <h2 className="font-mono text-[14px] font-semibold tracking-tight">Recently closed</h2>
                 {!q && <span className="text-[12px] text-faint">u reopens the last one</span>}
               </div>
               <div className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface">
@@ -114,7 +114,7 @@ export function HomePage() {
           {(shownRecents.length > 0 || !q) && (
             <>
               <div className="flex items-baseline justify-between pb-3 pt-10">
-                <h2 className="text-[15px] font-semibold">
+                <h2 className="font-mono text-[14px] font-semibold tracking-tight">
                   {q ? 'Matching conversations' : 'Recent conversations'}
                 </h2>
                 <Link to="/history" className="text-[12px] text-mut hover:text-ink">
