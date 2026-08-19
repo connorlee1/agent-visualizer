@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { Provider } from '../../shared/types';
 import { readTailLines } from './parse';
+import { codexDbState } from './codexdb';
 
 export interface TurnState {
   state: 'working' | 'idle';
@@ -114,9 +116,23 @@ const STALE_TURN_MS = 180_000;
 
 const cache = new Map<string, { mtimeMs: number; size: number; state: 'working' | 'idle' }>();
 
+const FILE_UUID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+
 export async function getTurnState(provider: Provider, filePath: string): Promise<TurnState | null> {
   const stat = await fs.stat(filePath).catch(() => null);
   if (!stat) return null;
+  if (provider === 'codex') {
+    // paginated codex streams to sqlite, not the rollout — thread_turns is
+    // the authoritative lifecycle when the db knows this thread
+    const threadId = FILE_UUID_RE.exec(path.basename(filePath))?.[1];
+    const db = threadId ? await codexDbState(threadId) : null;
+    if (db) {
+      const lastWriteMs = Math.max(stat.mtimeMs, db.lastItemMs);
+      let state = db.state;
+      if (state === 'working' && Date.now() - lastWriteMs > STALE_TURN_MS) state = 'idle';
+      return { state, lastWriteMs };
+    }
+  }
   let state: 'working' | 'idle' | undefined;
   const cached = cache.get(filePath);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {

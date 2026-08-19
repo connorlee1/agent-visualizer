@@ -4,6 +4,7 @@ import type { AgentStatus, Provider, TmuxAgent } from '@shared/types';
 import { fetchAgents, fetchClosedAgents, fetchProjects, fetchRecentSessions, fetchSessions, fetchTranscript, killAgent } from './lib/api';
 import { deriveStatus } from './lib/status';
 import { linkedSessionFor } from './lib/linked';
+import { syncDoneFlash } from './lib/useDoneFlash';
 
 export interface AgentWithStatus extends TmuxAgent {
   status: AgentStatus;
@@ -41,6 +42,11 @@ export function useAgents(): { agents: AgentWithStatus[]; isLoading: boolean } {
         lastWriteAt: session ? new Date(session.lastActivityAt).getTime() : undefined,
       }),
     };
+  });
+  // Feed the done-flash store every poll (idempotent) — AppShell mounts this
+  // on every page, so rings survive time spent away from wall/agent views.
+  useEffect(() => {
+    syncDoneFlash(agents);
   });
   return { agents, isLoading: query.isLoading };
 }

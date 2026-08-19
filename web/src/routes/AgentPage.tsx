@@ -38,7 +38,7 @@ export function AgentPage() {
   const agent = agents.find((a) => a.name === tmuxName);
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
-  const doneFlash = useDoneFlash(agent?.name, agent?.status);
+  const doneFlash = useDoneFlash(agent?.name);
 
   const [showTerminal, setShowTerminal] = useState(
     () => localStorage.getItem('terminalOpen') === '1',
@@ -111,8 +111,10 @@ export function AgentPage() {
     );
   }
 
-  // chat needs a linked conversation (codex agents correlate by directory)
-  const hasChat = !!linked;
+  // any managed agent gets the chat surface — the transcript hydrates once
+  // the conversation links (a fresh codex only writes its session file on
+  // the first message, so `linked` starts out null)
+  const hasChat = !!agent.provider;
   const terminalVisible = showTerminal || !hasChat;
 
   const frameActions = (
@@ -122,11 +124,12 @@ export function AgentPage() {
       </span>
       {hasChat && (
         <button
+          data-term-toggle
           onClick={toggleTerminal}
           className={`flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${
             showTerminal ? 'border-faint text-ink' : 'border-edge text-mut hover:text-ink'
           }`}
-          title="toggle raw terminal (t)"
+          title="toggle raw terminal (t / ⌥T)"
         >
           <SquareTerminal size={11} /> Terminal
         </button>
@@ -222,9 +225,10 @@ export function AgentPage() {
       }
       actions={
         <button
+          data-term-toggle
           onClick={toggleTerminal}
           className="rounded p-1 text-mut hover:bg-surface2 hover:text-ink"
-          title="hide terminal (t)"
+          title="hide terminal (t / ⌥T)"
         >
           <X size={13} />
         </button>

@@ -12,21 +12,21 @@ const SESSION_FILE_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 /** Files under dir currently held open by any process: [pid, path] pairs. */
 async function openFilesUnder(dir: string): Promise<Array<[number, string]>> {
-  try {
-    // -F pn: machine-readable "p<pid>" / "n<path>" lines
-    const { stdout } = await exec('lsof', ['-Fpn', '+D', dir]);
-    const out: Array<[number, string]> = [];
-    let pid = 0;
-    for (const line of stdout.split('\n')) {
-      if (line.startsWith('p')) pid = Number(line.slice(1)) || 0;
-      else if (line.startsWith('n') && pid && line.endsWith('.jsonl')) out.push([pid, line.slice(1)]);
-    }
-    return out;
-  } catch {
-    // lsof exits 1 when nothing holds files there — and any failure just
-    // means we fall back to the stamped session ids
-    return [];
+  // lsof exits 1 for ANY per-file hiccup during the +D walk (and when nothing
+  // matches) while still printing every result it did gather — so take the
+  // stdout of a "failed" run too, not just a clean exit
+  const stdout = await exec('lsof', ['-Fpn', '+D', dir]).then(
+    (r) => r.stdout,
+    (err: { stdout?: string }) => err?.stdout ?? '',
+  );
+  // -F pn: machine-readable "p<pid>" / "n<path>" lines
+  const out: Array<[number, string]> = [];
+  let pid = 0;
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1)) || 0;
+    else if (line.startsWith('n') && pid && line.endsWith('.jsonl')) out.push([pid, line.slice(1)]);
   }
+  return out;
 }
 
 async function parentTable(): Promise<Map<number, number>> {
@@ -47,7 +47,7 @@ let cache: { at: number; value: Map<number, string> } | null = null;
 
 /** panePid -> transcript file path that pane's process tree holds open. */
 async function liveSessionsByPane(panePids: number[]): Promise<Map<number, string>> {
-  if (cache && Date.now() - cache.at < 3000) return cache.value;
+  if (cache && Date.now() - cache.at < 5000) return cache.value;
   const [claudeFiles, codexFiles, parents] = await Promise.all([
     openFilesUnder(CLAUDE_PROJECTS_DIR),
     openFilesUnder(CODEX_SESSIONS_DIR),

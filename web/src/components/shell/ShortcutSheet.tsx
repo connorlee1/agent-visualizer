@@ -19,6 +19,7 @@ const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]>
       ['⌥⇥ / ⌥⇧⇥', 'focus next / previous panel'],
       ['⌥S', 'sleep or wake the focused panel'],
       ['⌥F', 'fullscreen the focused panel (toggle)'],
+      ['⌥T', 'flip the focused panel chat ↔ terminal'],
       ['⌘⌥⌫ ×2', 'kill the focused panel’s agent'],
       ['click', 'focus a panel'],
     ],

@@ -192,12 +192,17 @@ export async function listCodexSessions(): Promise<SessionSummary[]> {
  * resume, so merge by record timestamp rather than trusting file order.
  */
 export async function parseCodexSessionTranscript(session: SessionSummary): Promise<Message[]> {
+  // paginated codex (0.147+) streams items to sqlite and only page-flushes
+  // the rollout — prefer the db whenever it has at least as much history
+  const { codexDbTranscript } = await import('./codexdb');
+  const fromDb = await codexDbTranscript(session.id).catch(() => null);
   const files = getCodexSessionFiles(session.id);
   const list = files.length ? files : [session.filePath];
   const out: Message[] = [];
   for (let i = 0; i < list.length; i++) {
     out.push(...await parseCodexFile(list[i], `F${i}`));
   }
+  if (fromDb && fromDb.length >= out.filter((m) => m.role !== 'system').length) return fromDb;
   if (list.length > 1) {
     out.sort((a, b) => {
       if (!a.timestamp || !b.timestamp) return 0;

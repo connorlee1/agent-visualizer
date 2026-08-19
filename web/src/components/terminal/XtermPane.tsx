@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalSocketUrl } from '../../lib/ws';
 import { subscribeTheme, xtermTheme } from '../../lib/themes';
+import { isDoneFlashMuted } from '../../lib/useDoneFlash';
 
 type ConnState = 'connecting' | 'open' | 'reconnecting' | 'ended';
 
@@ -30,7 +31,9 @@ export function XtermPane({ name }: { name: string }) {
     term.loadAddon(fit);
     term.open(host);
     fit.fit();
-    term.focus();
+    // a sleeping pane must not steal focus on (re)mount — the pane's
+    // focus-within brightness would override its dim
+    if (!isDoneFlashMuted(name)) term.focus();
 
     const encoder = new TextEncoder();
     let ws: WebSocket | null = null;

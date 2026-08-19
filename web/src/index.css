@@ -102,6 +102,16 @@ body {
   box-shadow: inset 0 0 0 2px var(--tint, var(--color-claude));
   animation: flash-remind 0.4s ease-in-out 6;
 }
+/* The pane you're focused in — or holding fullscreen via the ⌥F peek-zoom,
+   which can target a pane with no DOM focus inside it — needs no notifying;
+   you're already looking at it. Flashing resumes on the next cycle once
+   focus moves elsewhere / the zoom drops. */
+[data-pane]:focus-within .flash-done-overlay,
+[data-pane]:focus-within .flash-remind-overlay,
+[data-pane][data-zoom] .flash-done-overlay,
+[data-pane][data-zoom] .flash-remind-overlay {
+  display: none;
+}
 
 @keyframes pulse-alert-border {
   0%, 100% { border-color: var(--color-alert); }
@@ -109,6 +119,16 @@ body {
 }
 .pulse-alert-border {
   animation: pulse-alert-border 1.4s ease-in-out infinite;
+}
+
+/* Which pane holds focus must read at a glance on a crowded wall: the 1px
+   dimmed→full tint border shift is too subtle (especially on light themes,
+   where resting tints are already strong). The focused pane gets a second
+   ring in its accent — doubling the border weight, not just shifting hue.
+   (An outer glow was tried and rejected as tacky.) Alert panes keep their
+   pulse as the stronger signal. */
+[data-pane]:focus-within:not(.pulse-alert-border) {
+  box-shadow: 0 0 0 1px var(--tint, var(--color-claude));
 }
 
 /* xterm fills its container and blends with the page */

@@ -11,12 +11,10 @@ export function SnoozeButton({ name, muted }: { name: string; muted: boolean }) 
   return (
     <button
       data-snooze
-      onClick={(e) => {
-        toggleDoneFlashMute(name);
-        // drop focus so the pane's focus-within doesn't hold a freshly
-        // slept pane at full brightness — the dim must engage visibly
-        e.currentTarget.blur();
-      }}
+      onClick={() => toggleDoneFlashMute(name)}
+      // never take focus: keeps the user's caret where it was, and keeps a
+      // freshly slept pane from staying bright via its own focus-within
+      onMouseDown={(e) => e.preventDefault()}
       className={`rounded p-1 hover:bg-surface2 ${muted ? 'text-warn' : 'text-mut hover:text-ink'}`}
       title={muted ? 'sleeping — reminder strobe every 10m; click to wake (⌥S)' : 'sleep: silence the done-flash (a reminder still strobes every 10m) (⌥S)'}
     >

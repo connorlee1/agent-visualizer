@@ -8,8 +8,13 @@
  * well-separated hues instead: each dir hashes to a preferred slot, and
  * collisions probe to the next slot. Assignment runs over the sorted distinct
  * dir set, so a given set of dirs always maps to the same colors — across
- * renders and reloads. Mid lightness/chroma in oklch reads on both dark and
- * light themes.
+ * renders and reloads.
+ *
+ * Each color is a light-dark() pair: the mid-light pastel that reads on dark
+ * themes washes out against pale light-theme borders, so light mode gets a
+ * darker, slightly stronger variant of the same hue. It resolves against the
+ * color-scheme lib/themes.ts sets on <html> per theme, so tints track theme
+ * drift live with no re-render.
  */
 
 /** Palette hues, ordered so neighboring slots are far apart on the wheel —
@@ -31,7 +36,8 @@ export function dirColorMap(dirs: Iterable<string | undefined | null>): Map<stri
     let slot = hash(dir) % HUES.length;
     while (taken.has(slot) && taken.size < HUES.length) slot = (slot + 1) % HUES.length;
     taken.add(slot);
-    map.set(dir, `oklch(0.68 0.14 ${HUES[slot]})`);
+    const hue = HUES[slot];
+    map.set(dir, `light-dark(oklch(0.5 0.16 ${hue}), oklch(0.68 0.14 ${hue}))`);
   }
   return map;
 }

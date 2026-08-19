@@ -142,7 +142,8 @@ router.post('/agents', asyncRoute(async (req, res) => {
     });
     if (sessionId && title) rememberAgentName(sessionId, title);
     if (body.resumeSessionId) noteResumed(body.resumeSessionId);
-    broadcast('tmux-changed');
+    invalidateTmuxListing();
+  broadcast('tmux-changed');
     res.json({ tmuxName: name });
   } catch (err) {
     if (err instanceof TmuxError) {
@@ -153,9 +154,41 @@ router.post('/agents', asyncRoute(async (req, res) => {
   }
 }));
 
-router.get('/tmux', asyncRoute(async (_req, res) => {
+// GET /tmux is the hot poll (every open view hits it every 2s) and its body
+// fans out ~20 subprocesses. Coalesce: concurrent requests share one
+// computation, and results stay fresh for a second — N tabs cost one
+// computation per second, not N per 2s.
+let tmuxListingCache: { at: number; agents: TmuxAgent[] } | null = null;
+const invalidateTmuxListing = () => { tmuxListingCache = null; };
+let tmuxListingInFlight: Promise<TmuxAgent[]> | null = null;
+
+async function computeTmuxListing(): Promise<TmuxAgent[]> {
   const agents = await listAgents({ previews: true });
   const livePaths = await resolveLiveSessions(agents);
+  // Fresh codex agents carry no stamp and don't hold their rollout open
+  // (paginated mode), so lsof can't see them — correlate by directory +
+  // launch time instead, oldest agent claiming the oldest unclaimed session.
+  const claimed = new Set(
+    agents.map((a) => (a.sessionId ?? a.resumedFrom)?.toLowerCase()).filter(Boolean) as string[],
+  );
+  const unlinked = agents
+    .filter((a) => a.provider === 'codex' && a.agentRunning && !a.sessionId && !a.resumedFrom && a.cwd)
+    .sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+  if (unlinked.length) {
+    const all = await getAllSessions();
+    for (const agent of unlinked) {
+      const launched = new Date(agent.createdAt).getTime() - 120_000;
+      const match = all
+        .filter((s) =>
+          s.provider === 'codex' && s.projectPath === agent.cwd &&
+          new Date(s.createdAt).getTime() >= launched && !claimed.has(s.id.toLowerCase()))
+        .sort((x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime())[0];
+      if (match) {
+        agent.sessionId = match.id;
+        claimed.add(match.id.toLowerCase());
+      }
+    }
+  }
   await Promise.all(agents.map(async (agent) => {
     if (!agent.provider || !agent.agentRunning) return;
     const id = agent.sessionId ?? agent.resumedFrom;
@@ -186,7 +219,25 @@ router.get('/tmux', asyncRoute(async (_req, res) => {
   for (const a of agents) {
     if (a.managed && a.sessionId && a.title) rememberAgentName(a.sessionId, a.title);
   }
-  res.json(agents);
+  return agents;
+}
+
+router.get('/tmux', asyncRoute(async (_req, res) => {
+  if (tmuxListingCache && Date.now() - tmuxListingCache.at < 1000) {
+    res.json(tmuxListingCache.agents);
+    return;
+  }
+  if (!tmuxListingInFlight) {
+    tmuxListingInFlight = computeTmuxListing()
+      .then((agents) => {
+        tmuxListingCache = { at: Date.now(), agents };
+        return agents;
+      })
+      .finally(() => {
+        tmuxListingInFlight = null;
+      });
+  }
+  res.json(await tmuxListingInFlight);
 }));
 
 router.get('/tmux/closed', asyncRoute(async (_req, res) => {
@@ -209,6 +260,7 @@ router.delete('/tmux/closed/:id', asyncRoute(async (req, res) => {
     res.status(404).json({ error: 'no such entry' });
     return;
   }
+  invalidateTmuxListing();
   broadcast('tmux-changed');
   res.status(204).end();
 }));
@@ -224,6 +276,7 @@ router.delete('/tmux/:name', asyncRoute(async (req, res) => {
     }
     throw err;
   }
+  invalidateTmuxListing();
   broadcast('tmux-changed');
   res.status(204).end();
 }));
@@ -250,6 +303,7 @@ router.patch('/tmux/:name/title', asyncRoute(async (req, res) => {
     }
     throw err;
   }
+  invalidateTmuxListing();
   broadcast('tmux-changed');
   res.status(204).end();
 }));

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { AgentStatus } from '@shared/types';
 
 // "Truly" done: the agent must hold 'waiting' this long without resuming.
@@ -194,14 +194,36 @@ function update(name: string, status: AgentStatus | undefined) {
         ring(name);
       }, CONFIRM_DONE_MS);
     }
+    // resume a ring paused by an approval blip
+    if (e.done && !e.muted && e.flashTimer == null && e.repeatTimer == null) ring(name);
     // not already counting, showing, or queued for a strobe slot
     if (e.remindTimer == null && e.remindFlashTimer == null && !strobeQueue.includes(name)) {
       armRemind(name);
     }
     return;
   }
-  // needs-approval / exited / gone — the pane signals those on its own
+  if (status === 'needs-approval') {
+    // often a one-poll false positive (agent output that merely LOOKS like a
+    // dialog) — pause the ring but keep the episode, so a blip can't kill it
+    stopFlashing(e);
+    return;
+  }
+  // exited / gone
   reset(name);
+}
+
+/**
+ * Feed the freshest statuses for ALL agents — called from useAgents (mounted
+ * in AppShell on every page), so work→idle transitions are tracked even
+ * while no panel for the agent is on screen.
+ */
+export function syncDoneFlash(list: ReadonlyArray<{ name: string; status: AgentStatus }>): void {
+  for (const a of list) update(a.name, a.status);
+}
+
+/** Whether an agent is currently slept — lets panes avoid stealing focus. */
+export function isDoneFlashMuted(name: string): boolean {
+  return entryFor(name).muted;
 }
 
 /** Standing mute: while set, this agent never flashes. Unmuting mid-episode rings. */
@@ -230,20 +252,17 @@ const snapshotFor = (name: string | undefined): number => {
 };
 
 /**
- * Repeating end-of-work notifier. After an agent that was observed working
- * has stayed idle for a continuous 10s, `flash` pulses true for ~1s every
- * 10s until the agent works again — unless the agent is muted. `remind`
- * strobes for ~2.5s once a MUTED pane has sat idle for 10 continuous
- * minutes, and again every 10 minutes after — sleep's periodic heartbeat.
- * Strobes are serialized wall-wide: one at a time, the rest queue.
+ * Repeating end-of-work notifier (read-only view; syncDoneFlash drives the
+ * state). After an agent that was observed working has stayed idle for a
+ * continuous 10s, `flash` pulses true for ~1s every 10s until the agent
+ * works again — unless the agent is muted. `remind` strobes for ~2.5s once
+ * a MUTED pane has sat idle for 10 continuous minutes, and again every 10
+ * minutes after — sleep's periodic heartbeat. Strobes are serialized
+ * wall-wide: one at a time, the rest queue.
  */
 export function useDoneFlash(
   name: string | undefined,
-  status: AgentStatus | undefined,
 ): { flash: boolean; muted: boolean; remind: boolean } {
-  useEffect(() => {
-    if (name) update(name, status);
-  }, [name, status]);
   const snap = useSyncExternalStore(subscribe, () => snapshotFor(name));
   return { flash: !!(snap & 1), muted: !!(snap & 2), remind: !!(snap & 4) };
 }

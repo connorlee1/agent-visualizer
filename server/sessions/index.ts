@@ -75,6 +75,13 @@ async function transcriptStat(summary: SessionSummary): Promise<{ mtimeMs: numbe
     mtimeMs = Math.max(mtimeMs, s.mtimeMs);
     size += s.size;
   }
+  if (summary.provider === 'codex') {
+    // paginated codex streams to sqlite while the rollout sits still — fold
+    // the db's newest item into the fingerprint so live chats don't freeze
+    const { codexDbState } = await import('./codexdb');
+    const db = await codexDbState(summary.id).catch(() => null);
+    if (db?.lastItemMs) mtimeMs = Math.max(mtimeMs, db.lastItemMs);
+  }
   return { mtimeMs, size };
 }
 

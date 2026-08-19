@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 import { dimmed } from '../../lib/dirColor';
 
@@ -32,17 +33,51 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
   flash?: boolean;
   /** Aggressive strobe (sleeping pane's periodic reminder); outranks flash and lifts dim. */
   remind?: boolean;
-  /** Asleep (done-flash muted): the whole pane dims; hover/focus restores it. */
+  /** Asleep (done-flash muted): the whole pane dims; hovering or focusing it
+      restores full brightness, as if awake. Safe only because nothing takes
+      focus in a slept pane uninvited (XtermPane skips mount-focus when muted,
+      SnoozeButton refuses focus on mousedown). */
   dim?: boolean;
   /** Group accent (e.g. per-directory): dimmed border, full strength on focus. */
   tint?: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const wantDim = dim && !alert && !remind;
+
+  // Self-healing fade: on this many-terminal page the main thread can stall
+  // long enough that the 300ms opacity transition is interrupted and never
+  // re-runs, leaving a slept pane stuck fully bright (seen live, computed
+  // opacity pinned at 1 with the dim class applied). Keep the fade, but
+  // verify the settled state once a second and snap without animation after
+  // two consecutive wrong readings (one wrong reading may just be mid-fade).
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const everDimmed = useRef(false);
+  if (wantDim) everDimmed.current = true;
+  useEffect(() => {
+    if (!everDimmed.current) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    let wrongOnce = false;
+    const iv = window.setInterval(() => {
+      const o = parseFloat(getComputedStyle(el).opacity);
+      const expectDim = wantDim && !el.matches(':hover') && !el.matches(':focus-within');
+      const wrong = expectDim ? o > 0.9 : o < 0.9;
+      if (wrong && wrongOnce) {
+        el.style.transition = 'none';
+        void el.offsetWidth; // flush so the snap lands before re-enabling
+        el.style.transition = '';
+      }
+      wrongOnce = wrong;
+    }, 1000);
+    return () => window.clearInterval(iv);
+  }, [wantDim]);
+
   return (
     <div
+      ref={wrapRef}
       className={`h-full min-h-0 p-[3px] transition-opacity duration-300 ${
-        dim && !alert && !remind ? 'opacity-45 focus-within:opacity-100 hover:opacity-100' : ''
+        wantDim ? 'opacity-45 focus-within:opacity-100 hover:opacity-100' : ''
       }`}
     >
       <div

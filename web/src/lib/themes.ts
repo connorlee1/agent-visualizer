@@ -28,6 +28,9 @@
 export interface Theme {
   id: string;
   name: string;
+  /** MUST match the palette's actual brightness: applyTheme sets it as the
+   * page color-scheme, which lib/dirColor.ts light-dark() tints resolve
+   * against — a mislabeled theme gets unreadable directory borders. */
   mode: 'dark' | 'light';
   colors: {
     bg: string;       // page + terminal background
@@ -370,6 +373,9 @@ export function applyTheme(id: string): void {
   ANSI_SLOTS.forEach((slot, i) => set(`--ansi-${slot}`, theme.ansi[i]));
   root.dataset.theme = theme.id;
   root.dataset.mode = theme.mode;
+  // LOAD-BEARING: lib/dirColor.ts tints are light-dark() pairs that resolve
+  // against this color-scheme. Removing it silently degrades every per-
+  // directory tint to its light variant.
   root.style.colorScheme = theme.mode;
   listeners.forEach((fn) => fn());
 }

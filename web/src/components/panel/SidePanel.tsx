@@ -34,9 +34,12 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
   const agent = panel.kind === 'term' ? agents.find((a) => a.name === panel.name) : undefined;
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
-  const chattable = !!linked;
+  // any managed agent is chattable — the composer relays through tmux, no
+  // conversation needed. A fresh codex has NO session file until its first
+  // message, so gating on `linked` would strand it as a bare terminal.
+  const chattable = !!agent?.provider;
   const tint = useDirColor(agent?.cwd ?? transcript.data?.session.projectPath);
-  const doneFlash = useDoneFlash(agent?.name, agent?.status);
+  const doneFlash = useDoneFlash(agent?.name);
   const showChat = panel.kind === 'term' && chattable && view === 'chat';
 
   const title =
@@ -70,9 +73,10 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
       )}
       {panel.kind === 'term' && chattable && (
         <button
+          data-flip-view
           onClick={() => setView((v) => (v === 'chat' ? 'term' : 'chat'))}
           className="rounded p-1 text-mut hover:bg-surface2 hover:text-ink"
-          title={view === 'chat' ? 'show raw terminal' : 'show chat'}
+          title={view === 'chat' ? 'show raw terminal (⌥T)' : 'show chat (⌥T)'}
         >
           {view === 'chat' ? <SquareTerminal size={13} /> : <MessageSquare size={13} />}
         </button>

@@ -18,6 +18,7 @@ Single-process mode (no Vite dev server): `npm run build && npm start`, then ope
 - **macOS or Linux** with **tmux** installed and on PATH. If your tmux lives somewhere PATH doesn't cover, set `TMUX_BIN=/path/to/tmux`. (Developed on macOS; Linux should work but is less tested.)
 - **Node 20+**. `npm install` compiles node-pty, a native module, so you need a C/C++ toolchain: Xcode Command Line Tools on macOS (`xcode-select --install`), `build-essential` + `python3` on Linux.
 - The **`claude` and/or `codex` CLIs** on PATH and logged in — needed to launch and resume agents. Browsing existing transcripts works without them.
+- The **`sqlite3` CLI** for live transcripts/status from newer Codex versions (0.147+ stream to `~/.codex/thread_history_1.sqlite`). Preinstalled on macOS; `apt install sqlite3` on Linux. Without it, Codex falls back to rollout files.
 
 ### Good to know
 

@@ -123,6 +123,24 @@ export function AppShell() {
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat) nudgeTheme();
+      } else if (e.code === 'KeyT' && !e.shiftKey) {
+        // ⌥T flips the focused pane chat ↔ terminal by clicking its own
+        // control: a side panel's in-place flip, or the primary/terminal
+        // pane's split toggle. Panes with neither (transcripts) no-op.
+        const pane = focused ?? panes[0];
+        const flip = pane?.querySelector<HTMLElement>('[data-flip-view], [data-term-toggle]');
+        if (!flip) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat) return;
+        flip.click();
+        // ChatPane doesn't autofocus on mount the way XtermPane does — put
+        // focus back in the flipped pane (or, if the flip closed this pane,
+        // whichever pane remains)
+        setTimeout(() => {
+          const target = pane && document.contains(pane) ? pane : document.querySelector('[data-pane]');
+          target?.querySelector('textarea')?.focus({ preventScroll: true });
+        }, 60);
       }
     };
     window.addEventListener('keydown', onKey, true);
