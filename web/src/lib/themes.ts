@@ -403,11 +403,6 @@ export function randomThemeId(exclude?: string): string {
   return list[Math.floor(Math.random() * list.length)].id;
 }
 
-/** The id after `current` in THEME_LIST, wrapping around. */
-export function nextThemeId(current: string): string {
-  const i = THEME_LIST.findIndex((t) => t.id === current);
-  return THEME_LIST[(i + 1) % THEME_LIST.length].id;
-}
 
 // Ambient drift: only sets CSS custom properties + xterm options via the
 // normal applyTheme path, so open terminals restyle in place — a drift tick
@@ -446,9 +441,9 @@ export function pickTheme(id: string): void {
   setDrift(false);
 }
 
-/** Advance to the next theme now; if drifting, the clock resets to a full interval. */
+/** Hop to a random different theme now; if drifting, the clock resets to a full interval. */
 export function nudgeTheme(): void {
-  applyTheme(nextThemeId(currentId));
+  applyTheme(randomThemeId(currentId));
   if (isDrifting()) {
     write(DRIFT_AT_KEY, String(Date.now()));
     scheduleDrift(DRIFT_MS);

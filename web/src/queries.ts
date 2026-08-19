@@ -12,6 +12,9 @@ export interface AgentWithStatus extends TmuxAgent {
 export function useAgents(): { agents: AgentWithStatus[]; isLoading: boolean } {
   const query = useQuery({ queryKey: ['agents'], queryFn: fetchAgents, refetchInterval: 2000 });
   const recentsQuery = useQuery({
+    // interval as belt-and-suspenders: SSE invalidation drops events whenever
+    // the :5175 server restarts (which agents do while landing features)
+    refetchInterval: 15_000,
     queryKey: ['sessions', 'recent', 100],
     queryFn: () => fetchRecentSessions(100),
   });

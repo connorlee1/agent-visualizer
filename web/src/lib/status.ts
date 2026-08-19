@@ -41,9 +41,9 @@ export function deriveStatus(
   const lastWrite = agent.lastWriteMs ?? opts.lastWriteAt;
   if (agent.turnState === 'idle') return 'waiting';
   if (agent.turnState === 'working') {
-    const alive =
-      opts.changedRecently || (lastWrite != null && Date.now() - lastWrite < LIVENESS_WRITE_MS);
-    return alive ? 'working' : 'waiting';
+    // the server already latches dead turns closed — trust it directly, so a
+    // pane repaint (glancing/resizing) can never flash a dead turn green
+    return 'working';
   }
 
   // no linked transcript — weak fallbacks only

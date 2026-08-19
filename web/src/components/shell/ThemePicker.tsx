@@ -28,7 +28,7 @@ function Swatches({ theme }: { theme: Theme }) {
 
 /**
  * Sidebar control for the color theme. The name opens the picker; the ›
- * advances to the next theme. Themes also drift on their own every
+ * hops to a random different theme. Themes also drift on their own every
  * DRIFT_MINUTES unless a theme is pinned by picking it from the list.
  */
 export function ThemePicker() {
@@ -98,7 +98,7 @@ export function ThemePicker() {
         <button
           onClick={nudgeTheme}
           className="shrink-0 rounded-r-md py-2 pl-1 pr-2.5 text-mut hover:text-claude"
-          title="next theme (resets the auto-cycle clock)"
+          title="random theme (resets the auto-cycle clock)"
         >
           <ChevronRight size={15} />
         </button>
