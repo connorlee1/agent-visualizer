@@ -4,6 +4,7 @@ import { Check } from 'lucide-react';
 import type { SessionSummary } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
 import { driveModelPicker, sendAgentInput } from '../../lib/api';
+import { stripAnsi } from '../../lib/status';
 
 const CLAUDE_MODELS = ['fable', 'opus', 'sonnet', 'haiku'];
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -21,6 +22,22 @@ const CODEX_MODELS = [
 const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
 const MENU_WIDTH = 236;
+
+/**
+ * Codex's footer status line — "gpt-5.6-sol ultra · ~/dir · Main [default]" —
+ * is the live truth for model/effort. The transcript only records them when a
+ * turn STARTS, so it shows stale values at session start and never reflects a
+ * picker change until the next message; the pane preview updates every poll.
+ */
+function paneModelEffort(preview: string | undefined): { model: string; effort: string } | null {
+  if (!preview) return null;
+  const lines = stripAnsi(preview).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^\s*([A-Za-z0-9][\w.:-]*)\s+(minimal|low|medium|high|xhigh|max|ultra)\s+·/.exec(lines[i]);
+    if (m) return { model: m[1], effort: m[2] };
+  }
+  return null;
+}
 
 /**
  * The model/effort text in an agent's pane header, made clickable: a dropdown
@@ -41,10 +58,14 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
   // optimistic: the command landed in the pane, but the transcript won't
   // record the new setting until the next message is written
   const [pending, setPending] = useState<{ model?: string; effort?: string }>({});
+  // a picker drive takes a few seconds; errors must be visible, not console-only
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const confirmedModel = summary?.model ?? agent.model;
-  const confirmedEffort = summary?.effort;
+  const paneLive = agent.provider === 'codex' ? paneModelEffort(agent.preview) : null;
+  const confirmedModel = paneLive?.model ?? summary?.model ?? agent.model;
+  const confirmedEffort = paneLive?.effort ?? summary?.effort;
 
   useEffect(() => {
     setPending((p) => {
@@ -62,6 +83,12 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open]);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   const model = pending.model ?? confirmedModel;
   const effort = pending.effort ?? confirmedEffort;
@@ -82,20 +109,25 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
 
   const run = (command: string, set?: { model: string } | { effort: string }) => {
     setOpen(false);
+    setError(null);
     if (set) setPending((p) => ({ ...p, ...set }));
     void sendAgentInput(agent.name, { text: command }).catch((err) => {
-      console.error(`${command} failed:`, err);
       if (set) revert(set);
+      setError(err instanceof Error ? err.message : String(err));
     });
   };
 
   const runPicker = (req: { model?: string; effort?: string }, set: { model: string } | { effort: string }) => {
     setOpen(false);
+    setError(null);
+    setBusy(true);
     setPending((p) => ({ ...p, ...set }));
-    void driveModelPicker(agent.name, req).catch((err) => {
-      console.error('model picker failed:', err);
-      revert(set);
-    });
+    void driveModelPicker(agent.name, req)
+      .catch((err) => {
+        revert(set);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setBusy(false));
   };
 
   const toggle = () => {
@@ -131,11 +163,14 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
       <button
         ref={btnRef}
         onClick={toggle}
-        title="change model / effort"
-        className="underline-offset-2 hover:text-mut hover:underline hover:decoration-dotted"
+        title={error ? `change failed: ${error}` : busy ? 'switching…' : 'change model / effort'}
+        className={`underline-offset-2 hover:underline hover:decoration-dotted ${
+          error ? 'text-red-400' : busy ? 'animate-pulse text-mut' : 'hover:text-mut'
+        }`}
       >
         {model ? model.replace(/^claude-/, '') : 'model?'}
         {effort ? ` ${effort}` : ''}
+        {error ? ' ✕' : ''}
       </button>
       {open &&
         createPortal(

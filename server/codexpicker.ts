@@ -129,10 +129,15 @@ export async function driveCodexModelPicker(
 }
 
 async function drive(name: string, want: { model?: string; effort?: string }): Promise<PickerResult> {
+  const pane0 = await capturePanePlain(name);
+  // typed input while codex is mid-turn queues as a chat message, not a command
+  if (/esc to interrupt/i.test(pane0)) {
+    throw new Error('the agent is mid-turn — wait for it to finish');
+  }
   // completion = a "Model changed to" line that differs from the one already
   // on screen (counting lines breaks: the resize changes how much history the
   // pane shows, so counts move without anything new happening)
-  const before = lastModelChanged(await capturePanePlain(name));
+  const before = lastModelChanged(pane0);
 
   await typeIntoSession(name, '/model');
   await sleep(200);
