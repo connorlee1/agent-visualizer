@@ -128,9 +128,14 @@ export async function getTurnState(provider: Provider, filePath: string): Promis
     const db = threadId ? await codexDbState(threadId) : null;
     if (db) {
       const lastWriteMs = Math.max(stat.mtimeMs, db.lastItemMs);
-      let state = db.state;
-      if (state === 'working' && Date.now() - lastWriteMs > STALE_TURN_MS) state = 'idle';
-      return { state, lastWriteMs };
+      // No silence latch on this branch: thread_turns is authoritative
+      // (interrupts and completions update it), and one long-running exec
+      // writes NOTHING for its whole duration — a wall-clock cutoff misreads
+      // a live multi-minute command as idle. The remaining safety net is
+      // process-level: a crashed or exited codex drops agentRunning (pane
+      // back to shell → 'exited'). A hung-but-alive codex reads as working
+      // indefinitely — accepted over the common false-idle.
+      return { state: db.state, lastWriteMs };
     }
   }
   let state: 'working' | 'idle' | undefined;
