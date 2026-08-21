@@ -1,6 +1,6 @@
 # agent-visualizer
 
-A local dashboard for keeping track of AI coding agents. Launch `claude` / `codex` agents inside tmux, watch and type to them from embedded terminals in the browser, browse every past conversation on the machine, and resume any of them with one click.
+A local dashboard for keeping track of AI coding agents. Launch `claude` / `codex` agents inside tmux, watch and type to them from embedded terminals in the browser, browse every past conversation on the machine, and resume any of them with one click. Remote machines (RunPod pods, VMs) show up in the same grid — see [Remote machines](#remote-machines-ssh).
 
 ## Quickstart
 
@@ -35,6 +35,27 @@ Single-process mode (no Vite dev server): `npm run build && npm start`, then ope
 - **Transcript reader** — full conversation rendering: markdown, collapsed-by-default tool calls (click to expand input + result), thinking blocks, token counts, branch markers. Huge sessions open instantly (last 200 messages, "show earlier" pages back).
 - **Resume** — any session row or the reader header. Launches `claude --resume <id>` / `codex resume <id>` in a fresh tmux session **in the conversation's original directory** and drops you into its terminal.
 - **Rename** — the ⋮ menu on every agent card and pane header gives an agent a custom name (stored as `@agent_title` on the tmux session, so it survives server restarts). The same menu keeps the details a custom name hides: working directory (click to copy), the linked conversation tag (click to open its transcript), and the raw tmux session name.
+
+## Remote machines (ssh)
+
+Agents on a RunPod pod or any ssh-reachable VM appear in the same dashboard — same wall, same hotkeys, same launch modal (a Machine picker appears once you add one). The design: **each machine runs its own copy of this server next to its agents** (file watching, lsof linkage, approval hooks and sqlite reads only work machine-locally), and your local dashboard keeps an `ssh -N -L` tunnel per machine, merges every machine's agents into one listing, and forwards per-agent actions and terminal bytes to the right one.
+
+Setting a machine up:
+
+```sh
+# one-time, from this repo — installs + starts the server on the remote
+# (inside a tmux session named agent-visualizer, listening on 127.0.0.1:5175)
+./scripts/remote-setup.sh root@203.0.113.7 -p 22023 -i ~/.ssh/id_ed25519
+```
+
+Then in the dashboard sidebar: **Machines → +**, give it a name, and paste the same ssh command. The dashboard owns the tunnel from there — auto-reconnect with backoff, status dot in the sidebar, agents greying out if the machine drops. Remove a machine any time; its agents keep running on it.
+
+Notes:
+
+- The pasted ssh command is used as-is (so `~/.ssh/config` aliases work too). Keys must not need a passphrase prompt — the tunnel runs headless (`BatchMode=yes`). A plain `http(s)://` base URL also works in place of an ssh command (tailscale, etc.).
+- The remote machine needs the same requirements as local (node, tmux ≥ 3.1, the agent CLIs; `lsof`/`sqlite3` strongly recommended) — `remote-setup.sh` checks and tells you what's missing.
+- Conversation history lives on each machine. If a pod is destroyed, its transcripts go with it (mount a network volume over `~/.claude` / `~/.codex` if you care).
+- Registry lives in `~/.agent-visualizer/hosts.json`; nothing is ever exposed publicly — remote servers bind localhost and are only reached through your ssh tunnel.
 
 ## Drive it with the keyboard
 

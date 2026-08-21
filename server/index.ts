@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket, type WebSocket as WS } from 'ws';
 import { SERVER_PORT } from './config';
 import { router } from './routes';
 import { broadcast, hasClients } from './events';
@@ -11,6 +11,7 @@ import { handleTerminalConnection } from './terminal';
 import { startWatcher } from './sessions/index';
 import { listAgents } from './tmux';
 import { trackAgents } from './closedagents';
+import { hostBaseUrl, initHosts } from './hosts';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -34,19 +35,62 @@ const clampInt = (v: string | null, min: number, max: number, dflt: number) => {
   return Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : dflt;
 };
 
+/**
+ * Byte pipe between a browser terminal and a remote machine's own terminal
+ * endpoint (through its tunnel). Frames pass through untouched, so resize
+ * control frames and the exit sentinel behave exactly like local ones.
+ */
+function bridgeTerminal(client: WS, targetUrl: string): void {
+  const remote = new WebSocket(targetUrl);
+  remote.binaryType = 'nodebuffer';
+  const queued: Array<{ data: Buffer; isBinary: boolean }> = [];
+  const closeClient = (code: number, reason: string) => {
+    if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
+      // 1005/1006 are reserved — sending them is a protocol error
+      try { client.close(code >= 1000 && code < 5000 && code !== 1005 && code !== 1006 ? code : 1000, reason); } catch { /* closing anyway */ }
+    }
+  };
+  remote.on('open', () => {
+    for (const { data, isBinary } of queued.splice(0)) remote.send(data, { binary: isBinary });
+  });
+  remote.on('message', (data, isBinary) => {
+    if (client.readyState === client.OPEN) client.send(data as Buffer, { binary: isBinary });
+  });
+  remote.on('close', (code, reason) => closeClient(code, reason.toString()));
+  remote.on('error', () => closeClient(4002, 'remote terminal unreachable'));
+  client.on('message', (data, isBinary) => {
+    const buf = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
+    if (remote.readyState === remote.OPEN) remote.send(buf, { binary: isBinary });
+    else if (remote.readyState === remote.CONNECTING) queued.push({ data: buf, isBinary });
+  });
+  client.on('close', () => remote.close());
+  client.on('error', () => remote.close());
+}
+
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '', 'http://localhost');
-  const match = url.pathname.match(/^\/ws\/terminal\/([^/]+)$/);
-  if (!match) {
+  const local = url.pathname.match(/^\/ws\/terminal\/([^/]+)$/);
+  const remote = url.pathname.match(/^\/ws\/h\/([A-Za-z0-9-]+)\/terminal\/([^/]+)$/);
+  if (!local && !remote) {
     socket.destroy();
     return;
   }
   const cols = clampInt(url.searchParams.get('cols'), 2, 500, 120);
   const rows = clampInt(url.searchParams.get('rows'), 2, 300, 32);
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    void handleTerminalConnection(ws, decodeURIComponent(match[1]), cols, rows);
-  });
+  if (local) {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      void handleTerminalConnection(ws, decodeURIComponent(local[1]), cols, rows);
+    });
+    return;
+  }
+  const baseUrl = hostBaseUrl(remote![1]);
+  if (!baseUrl) {
+    socket.destroy();
+    return;
+  }
+  const target = `${baseUrl.replace(/^http/, 'ws')}/ws/terminal/${remote![2]}?cols=${cols}&rows=${rows}`;
+  wss.handleUpgrade(req, socket, head, (ws) => bridgeTerminal(ws, target));
 });
 
 // Name the session in the event so clients can invalidate ONE transcript
@@ -55,8 +99,12 @@ const SESSION_FILE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 startWatcher((filePath) => {
   const sessionId = SESSION_FILE.exec(filePath)?.[1]?.toLowerCase();
   const provider = filePath.includes('/.codex/') ? 'codex' : 'claude';
-  broadcast('session-updated', { filePath, provider, sessionId });
+  // host stamped so clients invalidate the right machine's transcript; when
+  // this server runs ON a remote machine the aggregator overwrites it
+  broadcast('session-updated', { filePath, provider, sessionId, host: 'local' });
 });
+
+initHosts();
 
 // Reconcile the persisted live-agent snapshot against tmux once at boot, so
 // agents that died while the server was down land in the closed list even

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router';
 import type { Provider } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
 import { RECAP_IDLE_MS, STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
+import { isRemoteHost, refOf } from '../../lib/agentRef';
 import { basename, uptime } from '../../lib/format';
 import { dimmed } from '../../lib/dirColor';
 import { useDirColor } from '../../lib/useDirColor';
@@ -18,7 +19,7 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
   const navigate = useNavigate();
   const needsApproval = agent.status === 'needs-approval';
   const tint = useDirColor(agent.cwd);
-  const open = () => navigate(`/agents/${agent.name}`);
+  const open = () => navigate(`/agents/${encodeURIComponent(refOf(agent))}`);
   const showRecap =
     agent.status === 'waiting' &&
     agent.lastWriteMs != null &&
@@ -49,6 +50,11 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
         <span className="truncate font-mono text-[13px] font-semibold" title={agent.cwd}>
           {agent.title ?? (agent.cwd ? basename(agent.cwd) : agent.name)}
         </span>
+        {isRemoteHost(agent.host) && (
+          <span className="shrink-0 rounded-sm border border-edge bg-surface2 px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-mut">
+            {agent.host}
+          </span>
+        )}
         <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-faint">{uptime(agent.createdAt)}</span>
         <AgentMenu agent={agent} />
       </div>

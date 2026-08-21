@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { MoreVertical, Pencil } from 'lucide-react';
 import type { TmuxAgent } from '@shared/types';
 import { renameAgent } from '../../lib/api';
+import { hostOf, isRemoteHost, refOf } from '../../lib/agentRef';
 import { basename, shortPath, truncate } from '../../lib/format';
 import { useLinkedSession, useLinkedSummary } from '../../lib/useLinkedSession';
 
@@ -60,7 +61,7 @@ export function AgentMenu({ agent }: { agent: TmuxAgent }) {
 
   const saveRename = async () => {
     try {
-      await renameAgent(agent.name, draft.trim());
+      await renameAgent(refOf(agent), draft.trim());
       await queryClient.invalidateQueries({ queryKey: ['agents'] });
       close();
     } catch (err) {
@@ -141,14 +142,26 @@ export function AgentMenu({ agent }: { agent: TmuxAgent }) {
                     hint={`open transcript (${linked.id})`}
                     onClick={() => {
                       close();
-                      navigate(`/s/${linked.provider}/${linked.id}`);
+                      navigate(`/s/${linked.provider}/${linked.id}${isRemoteHost(agent.host) ? `?host=${agent.host}` : ''}`);
                     }}
+                  />
+                )}
+                {isRemoteHost(agent.host) && (
+                  <MenuRow
+                    label="machine"
+                    value={hostOf(agent)}
+                    hint="this agent runs on a remote machine (via ssh tunnel)"
+                    onClick={() => {}}
                   />
                 )}
                 <MenuRow
                   label={copied === 'tmux' ? 'tmux session · copied' : 'tmux session'}
                   value={agent.name}
-                  hint={`click to copy — attach with: tmux attach -t ${agent.name}`}
+                  hint={
+                    isRemoteHost(agent.host)
+                      ? `click to copy — attach on ${hostOf(agent)} with: tmux attach -t ${agent.name}`
+                      : `click to copy — attach with: tmux attach -t ${agent.name}`
+                  }
                   onClick={() => copy('tmux', agent.name)}
                 />
               </>

@@ -5,6 +5,9 @@ import { useOpenLaunch } from './AppShell';
 import { AgentStatusDot } from '../agents/AgentStatusDot';
 import { ThemePicker } from './ThemePicker';
 import { ShortcutSheet } from './ShortcutSheet';
+import { MachinesSection } from './MachinesSection';
+import { altLabel, modLabel } from '../../lib/keys';
+import { isRemoteHost, refOf } from '../../lib/agentRef';
 import { agentLabel } from '../../lib/format';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -61,8 +64,8 @@ export function Sidebar() {
           <div className="flex flex-col gap-0.5">
             {agents.map((agent) => (
               <NavLink
-                key={agent.name}
-                to={`/agents/${agent.name}`}
+                key={refOf(agent)}
+                to={`/agents/${encodeURIComponent(refOf(agent))}`}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-md px-3 py-1.5 font-mono text-[12px] ${
                     isActive
@@ -73,11 +76,18 @@ export function Sidebar() {
               >
                 <AgentStatusDot status={agent.status} />
                 <span className="truncate">{agentLabel(agent, agents)}</span>
+                {isRemoteHost(agent.host) && (
+                  <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                    {agent.host}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>
         </div>
       )}
+
+      <MachinesSection />
 
       <div className="mt-auto flex items-center gap-1 px-3 pt-4">
         <div className="min-w-0 flex-1">
@@ -86,10 +96,10 @@ export function Sidebar() {
         <ShortcutSheet />
       </div>
       <div className="px-6 pb-4 pt-1 font-mono text-[10px] text-faint">
-        <span className="text-[color:var(--ansi-yellow)]">⌘K</span> new ·{' '}
+        <span className="text-[color:var(--ansi-yellow)]">{modLabel('K')}</span> new ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">g</span> wall ·{' '}
         <span className="text-[color:var(--ansi-yellow)]">1–9</span> jump ·{' '}
-        <span className="text-[color:var(--ansi-yellow)]">⌥?</span> all keys
+        <span className="text-[color:var(--ansi-yellow)]">{altLabel('?')}</span> all keys
       </div>
     </aside>
   );

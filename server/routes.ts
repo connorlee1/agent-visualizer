@@ -1,8 +1,10 @@
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { Router } from 'express';
-import type { LaunchAgentRequest, TmuxAgent } from '../shared/types';
+import type { AddHostRequest, ClosedAgent, LaunchAgentRequest, TmuxAgent } from '../shared/types';
+import { LOCAL_HOST } from '../shared/types';
 import { sseHandler, broadcast } from './events';
+import { addHost, connectedHosts, getHostsInfo, hostBaseUrl, hostEvents, removeHost } from './hosts';
 import { capturePane, createAgent, getSessionOption, isServerRunning, killSession, listAgents, renameAgent, sendKeyToSession, sendTextToSession, TmuxError } from './tmux';
 import { findSession, getAllSessions, getProjects, getSessionsForProject, getTranscript, livePathForSession } from './sessions/index';
 import { resolveLiveSessions } from './livesessions';
@@ -26,6 +28,100 @@ const asyncRoute = (fn: (req: any, res: any) => Promise<void>) => (req: any, res
 router.get('/health', asyncRoute(async (_req, res) => {
   res.json({ ok: true, tmuxRunning: await isServerRunning(), version: '0.1.0' });
 }));
+
+// ---- remote machines -----------------------------------------------------
+
+/** GET a JSON payload from a connected machine's server; null on any failure. */
+async function fetchRemoteJson<T>(baseUrl: string, apiPath: string, timeoutMs = 3000): Promise<T | null> {
+  try {
+    const res = await fetch(`${baseUrl}/api${apiPath}`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+router.get('/hosts', (_req, res) => {
+  res.json(getHostsInfo());
+});
+
+router.post('/hosts', (req, res) => {
+  const result = addHost(req.body as AddHostRequest);
+  if ('error' in result) {
+    res.status(400).json(result);
+    return;
+  }
+  broadcast('hosts-changed');
+  res.json(result);
+});
+
+router.delete('/hosts/:id', (req, res) => {
+  if (!removeHost(req.params.id)) {
+    res.status(404).json({ error: 'no such machine' });
+    return;
+  }
+  invalidateTmuxListing();
+  broadcast('hosts-changed');
+  broadcast('tmux-changed');
+  res.status(204).end();
+});
+
+/**
+ * Forwarder: /api/h/<hostId>/<anything> → that machine's /api/<anything>.
+ * Everything agent- or session-specific on a remote machine flows through
+ * here verbatim (launch, input, kill, rename, transcripts, model picker),
+ * so the remote server's own logic — and its own validation — applies.
+ */
+router.use('/h', (req, res) => {
+  const match = /^\/([A-Za-z0-9-]+)(\/.*)$/.exec(req.url);
+  if (!match) {
+    res.status(400).json({ error: 'bad remote path' });
+    return;
+  }
+  const [, hostId, rest] = match;
+  const baseUrl = hostBaseUrl(hostId);
+  if (!baseUrl) {
+    res.status(502).json({ error: `machine "${hostId}" is not connected` });
+    return;
+  }
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body != null;
+  fetch(`${baseUrl}/api${rest}`, {
+    method: req.method,
+    headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+    body: hasBody ? JSON.stringify(req.body) : undefined,
+    // generous: codex model-picker drives can take a while
+    signal: AbortSignal.timeout(60_000),
+  }).then(async (r) => {
+    if (r.status === 204) {
+      res.status(204).end();
+      return;
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.status(r.status);
+    res.set('Content-Type', r.headers.get('content-type') ?? 'application/json');
+    res.send(buf);
+  }).catch((err) => {
+    res.status(502).json({ error: `machine "${hostId}": ${err instanceof Error ? err.message : String(err)}` });
+  });
+});
+
+// Remote SSE relayed by hosts.ts: surface remote changes to our clients at
+// the same speed as local ones, and drop the merged listing cache so the
+// next poll refetches.
+hostEvents.on('remote-event', (hostId: string, event: string, data: string) => {
+  if (event === 'tmux-changed') {
+    invalidateTmuxListing();
+    broadcast('tmux-changed');
+  } else if (event === 'session-updated') {
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(data);
+    } catch { /* old remote without payload */ }
+    broadcast('session-updated', { ...payload, host: hostId });
+  }
+});
+hostEvents.on('changed', () => broadcast('hosts-changed'));
 
 router.get('/projects', asyncRoute(async (_req, res) => {
   res.json(await getProjects());
@@ -164,7 +260,21 @@ const invalidateTmuxListing = () => { tmuxListingCache = null; };
 let tmuxListingInFlight: Promise<TmuxAgent[]> | null = null;
 
 async function computeTmuxListing(): Promise<TmuxAgent[]> {
-  const agents = await listAgents({ previews: true });
+  const [local, ...remote] = await Promise.all([
+    computeLocalListing(),
+    ...connectedHosts().map(async ({ id, baseUrl }) => {
+      // 8s: a cold remote listing fans out ~20 subprocesses and can outlast
+      // a short timeout; its own cache makes every later poll fast
+      const agents = await fetchRemoteJson<TmuxAgent[]>(baseUrl, '/tmux', 8000);
+      return (agents ?? []).map((a) => ({ ...a, host: id }));
+    }),
+  ]);
+  // one createdAt order across machines keeps 1-9 jumps and tab order stable
+  return [...local, ...remote.flat()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+async function computeLocalListing(): Promise<TmuxAgent[]> {
+  const agents = (await listAgents({ previews: true })).map((a) => ({ ...a, host: LOCAL_HOST }));
   const livePaths = await resolveLiveSessions(agents);
   // Fresh codex agents carry no stamp and don't hold their rollout open
   // (paginated mode), so lsof can't see them — correlate by directory +
@@ -269,13 +379,23 @@ router.get('/tmux/closed', asyncRoute(async (_req, res) => {
   const byId = new Map((await getAllSessions()).map((s) => [s.id.toLowerCase(), s]));
   // hide (not delete) entries whose conversation a running agent owns —
   // resuming one would duplicate it; the entry returns if that agent dies
-  const live = await liveConversations();
-  res.json(getClosedAgents()
+  const [live, ...remote] = await Promise.all([
+    liveConversations(),
+    ...connectedHosts().map(async ({ id, baseUrl }) => {
+      const entries = await fetchRemoteJson<ClosedAgent[]>(baseUrl, '/tmux/closed');
+      // the remote server has already joined titles and filtered live owners
+      return (entries ?? []).map((e) => ({ ...e, host: id }));
+    }),
+  ]);
+  const localEntries = getClosedAgents()
     .filter((e) => !e.sessionId || !live.has(`${e.provider}:${e.sessionId.toLowerCase()}`))
     .map((e) => ({
       ...e,
+      host: LOCAL_HOST,
       conversationTitle: e.sessionId ? byId.get(e.sessionId.toLowerCase())?.title : undefined,
-    })));
+    }));
+  res.json([...localEntries, ...remote.flat()]
+    .sort((a, b) => b.closedAt.localeCompare(a.closedAt)));
 }));
 
 router.delete('/tmux/closed/:id', asyncRoute(async (req, res) => {

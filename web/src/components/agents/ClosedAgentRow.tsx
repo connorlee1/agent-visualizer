@@ -4,6 +4,7 @@ import { RotateCcw, X } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ClosedAgent } from '@shared/types';
 import { dismissClosedAgent } from '../../lib/api';
+import { hostOf, isRemoteHost } from '../../lib/agentRef';
 import { basename, relTime, shortPath } from '../../lib/format';
 import { useResume } from '../../lib/useResume';
 
@@ -17,7 +18,7 @@ export function ClosedAgentRow({ entry, onError }: {
   const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
   const dismiss = useMutation({
-    mutationFn: () => dismissClosedAgent(entry.id),
+    mutationFn: () => dismissClosedAgent(entry.id, hostOf(entry)),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['closed-agents'] }),
   });
   // without a session id there is no conversation to reopen — show it, but inert
@@ -27,7 +28,9 @@ export function ClosedAgentRow({ entry, onError }: {
 
   return (
     <div
-      onClick={() => resumable && navigate(`/s/${entry.provider}/${entry.sessionId}`)}
+      onClick={() =>
+        resumable &&
+        navigate(`/s/${entry.provider}/${entry.sessionId}${isRemoteHost(entry.host) ? `?host=${entry.host}` : ''}`)}
       className={`group flex items-center gap-3.5 px-4 py-3 hover:bg-surface2 ${resumable ? 'cursor-pointer' : ''}`}
     >
       <span className={`-mr-1.5 w-2 shrink-0 select-none text-[12px] font-bold text-transparent ${resumable ? 'group-hover:text-claude' : ''}`}>❯</span>
@@ -37,7 +40,14 @@ export function ClosedAgentRow({ entry, onError }: {
         title={entry.provider}
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-medium text-ink">{label}</div>
+        <div className="flex items-center gap-2 truncate text-[14px] font-medium text-ink">
+          {label}
+          {isRemoteHost(entry.host) && (
+            <span className="shrink-0 rounded-sm border border-edge bg-surface2 px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-mut">
+              {entry.host}
+            </span>
+          )}
+        </div>
         <div className="truncate pt-0.5 text-[12px] text-faint">
           {entry.cwd && <>{shortPath(entry.cwd)} · </>}
           {entry.sessionId && (
@@ -66,7 +76,7 @@ export function ClosedAgentRow({ entry, onError }: {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            void resume(entry.provider!, entry.sessionId!).then((msg) => msg && onError?.(msg));
+            void resume(entry.provider!, entry.sessionId!, hostOf(entry)).then((msg) => msg && onError?.(msg));
           }}
           disabled={busyId === entry.sessionId}
           className="invisible flex shrink-0 items-center gap-1.5 rounded-md border border-edge px-2.5 py-1 text-[12px] text-mut hover:text-ink group-hover:visible disabled:opacity-50"

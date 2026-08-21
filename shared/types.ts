@@ -2,9 +2,38 @@ export type Provider = 'claude' | 'codex';
 
 export type AgentStatus = 'working' | 'needs-approval' | 'waiting' | 'exited';
 
+/** The built-in machine id for the dashboard's own host. */
+export const LOCAL_HOST = 'local';
+
+export type HostStatus = 'connecting' | 'connected' | 'down';
+
+/** A remote machine running its own visualizer server, reached via ssh tunnel. */
+export interface HostInfo {
+  id: string;
+  name: string;
+  /** ssh command as pasted ("ssh root@1.2.3.4 -p 22023 -i ~/.ssh/id_ed25519"). */
+  ssh?: string;
+  /** Direct base URL instead of a tunnel (tailscale / testing). */
+  url?: string;
+  /** Port the remote visualizer server listens on (default 5175). */
+  remotePort?: number;
+  status: HostStatus;
+  /** Last tunnel/connection error, for the machines UI. */
+  lastError?: string;
+}
+
+export interface AddHostRequest {
+  name: string;
+  ssh?: string;
+  url?: string;
+  remotePort?: number;
+}
+
 /** One running tmux session, managed (agent-*) or not. */
 export interface TmuxAgent {
   name: string;
+  /** Machine this agent runs on ('local' or a host id); stamped by the aggregator. */
+  host?: string;
   managed: boolean;
   provider?: Provider;
   cwd?: string;
@@ -49,6 +78,8 @@ export interface TmuxAgent {
 /** A managed agent whose tmux session was killed or ended — kept so it can be resumed. */
 export interface ClosedAgent {
   id: string;
+  /** Machine it ran on ('local' or a host id); stamped by the aggregator. */
+  host?: string;
   /** tmux session name it had while alive. */
   name: string;
   provider?: Provider;

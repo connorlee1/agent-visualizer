@@ -4,7 +4,9 @@ import type { Message } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
 import { useTranscript } from '../../queries';
 import { sendAgentInput } from '../../lib/api';
+import { hostOf, refOf } from '../../lib/agentRef';
 import { parseApprovalDialog } from '../../lib/approval';
+import { altLabel } from '../../lib/keys';
 import { RECAP_IDLE_MS, stripAnsi } from '../../lib/status';
 import { basename } from '../../lib/format';
 import { useLinkedSession } from '../../lib/useLinkedSession';
@@ -17,8 +19,9 @@ import { TranscriptView } from '../transcript/TranscriptView';
  * stays fully usable in parallel.
  */
 export function ChatPane({ agent }: { agent: AgentWithStatus }) {
+  const agentRef = refOf(agent);
   const linked = useLinkedSession(agent);
-  const transcript = useTranscript(linked?.provider, linked?.id, true);
+  const transcript = useTranscript(linked?.provider, linked?.id, true, hostOf(agent));
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -33,8 +36,8 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
 
   // a freshly launched agent asks for its composer to be focused (see focusAgent.ts)
   useEffect(() => {
-    if (consumeComposerFocus(agent.name)) inputRef.current?.focus();
-  }, [agent.name]);
+    if (consumeComposerFocus(agentRef)) inputRef.current?.focus();
+  }, [agentRef]);
   const [pending, setPending] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showSteps, setShowSteps] = useState(() => localStorage.getItem('chatSteps') === '1');
@@ -85,7 +88,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
     setPending(text.startsWith('/') ? null : text);
     setSendError(null);
     try {
-      await sendAgentInput(agent.name, { text });
+      await sendAgentInput(agentRef, { text });
     } catch (err) {
       setPending(null);
       setDraft(text);
@@ -94,7 +97,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
   };
 
   const pressKey = (key: string) => {
-    void sendAgentInput(agent.name, { key }).catch(() => {});
+    void sendAgentInput(agentRef, { key }).catch(() => {});
   };
 
   const dialog = useMemo(() => parseApprovalDialog(agent.preview), [agent.preview]);
@@ -195,7 +198,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             <button
               data-recap-toggle
               onClick={() => setRecapOpen((v) => !v)}
-              title={recapOpen ? 'collapse (⌥R)' : `${agent.idleSummary} (⌥R)`}
+              title={recapOpen ? `collapse (${altLabel('R')})` : `${agent.idleSummary} (${altLabel('R')})`}
               className="mb-1.5 flex w-full shrink-0 items-baseline gap-1.5 rounded-md border border-edge bg-surface2 px-2 py-0.5 text-left hover:border-faint"
             >
               <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-faint">

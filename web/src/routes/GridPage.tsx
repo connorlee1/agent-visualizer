@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
-import { Layers, TerminalSquare } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Layers, Moon, Sun, TerminalSquare } from 'lucide-react';
 import type { TmuxAgent } from '@shared/types';
 import { useAgents } from '../queries';
+import { useMutedNames } from '../lib/useDoneFlash';
 import { basename } from '../lib/format';
+import { altLabel } from '../lib/keys';
+import { refOf } from '../lib/agentRef';
 import { dirColorMap, dimmed } from '../lib/dirColor';
 import { SidePanel } from '../components/panel/SidePanel';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -12,8 +15,8 @@ const dirOf = (a: TmuxAgent) => a.cwd ?? '';
 function orderedNames(agents: TmuxAgent[], order: string[]): string[] {
   const rank = new Map(order.map((n, i) => [n, i]));
   return [...agents]
-    .sort((a, b) => (rank.get(a.name) ?? 1e9) - (rank.get(b.name) ?? 1e9))
-    .map((a) => a.name);
+    .sort((a, b) => (rank.get(refOf(a)) ?? 1e9) - (rank.get(refOf(b)) ?? 1e9))
+    .map(refOf);
 }
 
 /**
@@ -21,7 +24,9 @@ function orderedNames(agents: TmuxAgent[], order: string[]): string[] {
  * bar onto another tile to rearrange; the order persists. When more than one
  * project is running, a toolbar filters by directory (chips, colored like the
  * tile borders) and "group" clusters same-directory tiles together — groups
- * follow the drag order of their first tile.
+ * follow the drag order of their first tile. "awake" hides slept (moon-muted)
+ * panes so the wall shows only agents you're actively watching; the toolbar
+ * also appears single-directory whenever that toggle is relevant.
  */
 export function GridPage() {
   const { agents } = useAgents();
@@ -33,6 +38,7 @@ export function GridPage() {
     }
   });
   const [groupByDir, setGroupByDir] = useState(() => localStorage.getItem('wallGroupByDir') !== '0');
+  const [awakeOnly, setAwakeOnly] = useState(() => localStorage.getItem('wallAwakeOnly') === '1');
   const [dirFilter, setDirFilter] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('wallDirFilter') ?? '[]');
@@ -47,6 +53,8 @@ export function GridPage() {
 
   const dirs = useMemo(() => [...new Set(agents.map(dirOf))].sort(), [agents]);
   const colors = useMemo(() => dirColorMap(agents.map((a) => a.cwd)), [agents]);
+  const muted = useMutedNames();
+  const sleptCount = agents.filter((a) => muted.has(refOf(a))).length;
 
   const toggleDir = (d: string) =>
     setDirFilter((prev) => {
@@ -60,6 +68,26 @@ export function GridPage() {
     localStorage.setItem('wallGroupByDir', next ? '1' : '0');
     setGroupByDir(next);
   };
+
+  const toggleAwakeOnly = () => {
+    const next = !awakeOnly;
+    localStorage.setItem('wallAwakeOnly', next ? '1' : '0');
+    setAwakeOnly(next);
+  };
+
+  // ⌥A toggles the awake-only filter — a chord (not a bare key) so it works
+  // from a focused wall terminal, capture phase so xterm can't relay it.
+  // e.code, since macOS turns ⌥A into "å"
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyA' || !e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleAwakeOnly();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
 
   const reorder = (src: string, dst: string) => {
     setOrder((prev) => {
@@ -111,9 +139,13 @@ export function GridPage() {
 
   // Stale filter entries (all of a project's agents exited) are ignored.
   const activeFilter = dirFilter.filter((d) => dirs.includes(d));
-  const shown = activeFilter.length ? agents.filter((a) => activeFilter.includes(dirOf(a))) : agents;
+  const shown = agents.filter(
+    (a) =>
+      (activeFilter.length === 0 || activeFilter.includes(dirOf(a))) &&
+      !(awakeOnly && muted.has(refOf(a))),
+  );
   const cols = shown.length === 1 ? 1 : shown.length <= 4 ? 2 : 3;
-  const byName = new Map(agents.map((a) => [a.name, a]));
+  const byName = new Map(agents.map((a) => [refOf(a), a]));
 
   let names = orderedNames(shown, order);
   if (groupByDir) {
@@ -132,9 +164,9 @@ export function GridPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {dirs.length > 1 && (
+      {(dirs.length > 1 || sleptCount > 0 || awakeOnly) && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-edge bg-surface px-2 py-1.5">
-          {dirs.map((d) => {
+          {dirs.length > 1 && dirs.map((d) => {
             const color = colors.get(d) ?? 'var(--color-mut)';
             const active = activeFilter.includes(d);
             const count = agents.filter((a) => dirOf(a) === d).length;
@@ -169,17 +201,43 @@ export function GridPage() {
             </button>
           )}
           <button
-            onClick={toggleGroup}
-            title="cluster tiles from the same directory together"
+            onClick={toggleAwakeOnly}
+            title={`show only awake panes — hide slept (moon-muted) ones (${altLabel('A')})`}
             className={`ml-auto flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
-              groupByDir ? 'border-claude/60 bg-claude/10 text-claude' : 'border-edge text-mut hover:text-ink'
+              awakeOnly ? 'border-claude/60 bg-claude/10 text-claude' : 'border-edge text-mut hover:text-ink'
             }`}
           >
-            <Layers size={12} />
-            group
+            <Sun size={12} />
+            awake
+            {sleptCount > 0 && <span className="text-faint">{sleptCount}</span>}
           </button>
+          {dirs.length > 1 && (
+            <button
+              onClick={toggleGroup}
+              title="cluster tiles from the same directory together"
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                groupByDir ? 'border-claude/60 bg-claude/10 text-claude' : 'border-edge text-mut hover:text-ink'
+              }`}
+            >
+              <Layers size={12} />
+              group
+            </button>
+          )}
         </div>
       )}
+      {shown.length === 0 ? (
+        // Only the awake filter can empty the wall (dir chips always cover
+        // every live agent); keep the toolbar up so it can be toggled back.
+        <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+          <div className="w-[360px]">
+            <EmptyState
+              icon={<Moon size={24} />}
+              title="Every pane is asleep"
+              hint="Toggle “awake” above to show slept panes"
+            />
+          </div>
+        </div>
+      ) : (
       <div
         className={`min-h-0 flex-1 p-[3px] ${draggingName ? 'select-none' : ''}`}
         style={{
@@ -205,6 +263,7 @@ export function GridPage() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

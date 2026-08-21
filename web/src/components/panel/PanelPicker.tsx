@@ -3,6 +3,7 @@ import { Eye } from 'lucide-react';
 import { useAgents, useRecentSessions } from '../../queries';
 import { encodePanelRef, type PanelRef } from '../../lib/panelRef';
 import { launchAgent, LaunchConflictError } from '../../lib/api';
+import { hostOf, isRemoteHost, refOf } from '../../lib/agentRef';
 import { agentLabel, relTime, truncate } from '../../lib/format';
 import { AgentStatusDot } from '../agents/AgentStatusDot';
 
@@ -25,10 +26,13 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
   if (!open) return null;
 
   const excluded = new Set(excludeRefs);
+  // recents shown below are local-machine conversations, so only local
+  // agents' sessions count as "already running" for that list
   const runningSessionIds = new Set(
-    agents.flatMap((a) => [a.sessionId, a.resumedFrom]).filter(Boolean) as string[],
+    agents.filter((a) => !isRemoteHost(a.host))
+      .flatMap((a) => [a.sessionId, a.resumedFrom]).filter(Boolean) as string[],
   );
-  const terms = agents.filter((a) => !excluded.has(encodePanelRef({ kind: 'term', name: a.name })));
+  const terms = agents.filter((a) => !excluded.has(encodePanelRef({ kind: 'term', name: refOf(a) })));
   const chats = (recents ?? [])
     .filter(
       (s) =>
@@ -52,9 +56,11 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
       if (err instanceof LaunchConflictError) {
         // already open in a running agent — show that agent's panel instead;
         // the server's pick may have just been killed, so prefer a live owner
-        const owners = agents.filter((a) => a.agentRunning && a.sessionId?.toLowerCase() === id.toLowerCase());
+        const owners = agents.filter(
+          (a) => !isRemoteHost(a.host) && a.agentRunning && a.sessionId?.toLowerCase() === id.toLowerCase(),
+        );
         const owner = owners.find((a) => a.name === err.liveAgent) ?? owners[0];
-        pick({ kind: 'term', name: owner?.name ?? err.liveAgent });
+        pick({ kind: 'term', name: owner ? refOf(owner) : err.liveAgent });
         return;
       }
       setError(err instanceof Error ? err.message : String(err));
@@ -73,12 +79,17 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
         {terms.length === 0 && <div className="px-3 pb-1 text-[12px] text-faint">none running</div>}
         {terms.map((a) => (
           <button
-            key={a.name}
-            onClick={() => pick({ kind: 'term', name: a.name })}
+            key={refOf(a)}
+            onClick={() => pick({ kind: 'term', name: refOf(a) })}
             className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-surface2"
           >
             <AgentStatusDot status={a.status} />
             <span className="truncate font-mono text-[12px]">{agentLabel(a, agents)}</span>
+            {isRemoteHost(a.host) && (
+              <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
+                {hostOf(a)}
+              </span>
+            )}
           </button>
         ))}
 

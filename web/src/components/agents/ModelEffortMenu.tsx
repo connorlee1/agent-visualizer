@@ -4,6 +4,7 @@ import { Check } from 'lucide-react';
 import type { SessionSummary } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
 import { driveModelPicker, sendAgentInput } from '../../lib/api';
+import { refOf } from '../../lib/agentRef';
 import { stripAnsi } from '../../lib/status';
 
 const CLAUDE_MODELS = ['fable', 'opus', 'sonnet', 'haiku'];
@@ -111,7 +112,7 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
     setOpen(false);
     setError(null);
     if (set) setPending((p) => ({ ...p, ...set }));
-    void sendAgentInput(agent.name, { text: command }).catch((err) => {
+    void sendAgentInput(refOf(agent), { text: command }).catch((err) => {
       if (set) revert(set);
       setError(err instanceof Error ? err.message : String(err));
     });
@@ -122,7 +123,7 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
     setError(null);
     setBusy(true);
     setPending((p) => ({ ...p, ...set }));
-    void driveModelPicker(agent.name, req)
+    void driveModelPicker(refOf(agent), req)
       .catch((err) => {
         revert(set);
         setError(err instanceof Error ? err.message : String(err));

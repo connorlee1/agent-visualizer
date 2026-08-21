@@ -4,6 +4,7 @@ import { ArrowLeft, Columns2, Play } from 'lucide-react';
 import type { Message, Provider } from '@shared/types';
 import { fetchTranscript } from '../lib/api';
 import { useAgents, useTranscript } from '../queries';
+import { hostOf, refOf, LOCAL_HOST } from '../lib/agentRef';
 import { useResume } from '../lib/useResume';
 import { decodePanelRef, encodePanelRef, type PanelRef } from '../lib/panelRef';
 import { TranscriptView } from '../components/transcript/TranscriptView';
@@ -32,14 +33,17 @@ export function SessionPage() {
   const sessionId = params.sessionId!;
   const navigate = useNavigate();
 
-  const query = useTranscript(provider, sessionId, true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // ?host= reads a remote machine's conversation through the forwarder
+  const host = searchParams.get('host') ?? LOCAL_HOST;
+
+  const query = useTranscript(provider, sessionId, true, host);
   const { agents } = useAgents();
   const { resume, busyId, error } = useResume();
   const [earlier, setEarlier] = useState<Message[]>([]);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [expandTools, setExpandTools] = useState(false);
 
-  const [searchParams, setSearchParams] = useSearchParams();
   const panel = decodePanelRef(searchParams.get('panel'));
   const [pickerOpen, setPickerOpen] = useState(false);
   const setPanel = (p: PanelRef | null) => {
@@ -58,7 +62,7 @@ export function SessionPage() {
   );
 
   const runningAgent = agents.find(
-    (a) => a.sessionId === sessionId || a.resumedFrom === sessionId,
+    (a) => hostOf(a) === host && (a.sessionId === sessionId || a.resumedFrom === sessionId),
   );
 
   const loadingRef = useRef(false);
@@ -71,6 +75,7 @@ export function SessionPage() {
       const res = await fetchTranscript(provider, sessionId, {
         offset: start,
         limit: earliestOffset - start,
+        host,
       });
       if (res) setEarlier((prev) => [...res.messages, ...prev]);
     } finally {
@@ -135,14 +140,14 @@ export function SessionPage() {
               </div>
               {runningAgent ? (
                 <button
-                  onClick={() => navigate(`/agents/${runningAgent.name}`)}
+                  onClick={() => navigate(`/agents/${encodeURIComponent(refOf(runningAgent))}`)}
                   className="flex items-center gap-1.5 rounded-md bg-ok/15 px-3 py-1.5 text-[12px] font-medium text-ok"
                 >
                   ▶ Open terminal
                 </button>
               ) : (
                 <button
-                  onClick={() => void resume(provider, sessionId)}
+                  onClick={() => void resume(provider, sessionId, host)}
                   disabled={busyId === sessionId}
                   className="flex items-center gap-1.5 rounded-md bg-claude/90 px-3 py-1.5 text-[12px] font-semibold text-on-accent hover:bg-claude disabled:opacity-50"
                 >

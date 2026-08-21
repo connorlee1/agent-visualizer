@@ -1,5 +1,6 @@
 import { Moon } from 'lucide-react';
 import { toggleDoneFlashMute } from '../../lib/useDoneFlash';
+import { altLabel } from '../../lib/keys';
 
 /**
  * Pane-header standing mute for the done-flash: always available on a
@@ -16,7 +17,7 @@ export function SnoozeButton({ name, muted }: { name: string; muted: boolean }) 
       // freshly slept pane from staying bright via its own focus-within
       onMouseDown={(e) => e.preventDefault()}
       className={`rounded p-1 hover:bg-surface2 ${muted ? 'text-warn' : 'text-mut hover:text-ink'}`}
-      title={muted ? 'sleeping — reminder strobe every 10m; click to wake (⌥S)' : 'sleep: silence the done-flash (a reminder still strobes every 10m) (⌥S)'}
+      title={muted ? `sleeping — reminder strobe every 10m; click to wake (${altLabel('S')})` : `sleep: silence the done-flash (a reminder still strobes every 10m) (${altLabel('S')})`}
     >
       <Moon size={13} fill={muted ? 'currentColor' : 'none'} />
     </button>

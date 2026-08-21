@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router';
 import { ArrowUpRight, MessageSquare, SquareTerminal, X } from 'lucide-react';
 import { useAgents, useKillAgent, useTranscript } from '../../queries';
 import type { PanelRef } from '../../lib/panelRef';
+import { isRemoteHost, refOf, LOCAL_HOST } from '../../lib/agentRef';
 import { agentLabel, truncate } from '../../lib/format';
 import { useDirColor } from '../../lib/useDirColor';
+import { altLabel } from '../../lib/keys';
 import { useLinkedSession, useLinkedSummary } from '../../lib/useLinkedSession';
 import { useDoneFlash } from '../../lib/useDoneFlash';
 import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
@@ -30,9 +32,11 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
   const [view, setView] = useState<'chat' | 'term'>('chat');
 
   const chat = panel.kind === 'chat' ? panel : null;
-  const transcript = useTranscript(chat?.provider, chat?.id, true);
+  const transcript = useTranscript(chat?.provider, chat?.id, true, chat?.host ?? LOCAL_HOST);
 
-  const agent = panel.kind === 'term' ? agents.find((a) => a.name === panel.name) : undefined;
+  // term panel names are agent refs ("host:name" on remote machines)
+  const agent = panel.kind === 'term' ? agents.find((a) => refOf(a) === panel.name) : undefined;
+  const agentRef = agent ? refOf(agent) : undefined;
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
   // any managed agent is chattable — the composer relays through tmux, no
@@ -40,20 +44,25 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
   // message, so gating on `linked` would strand it as a bare terminal.
   const chattable = !!agent?.provider;
   const tint = useDirColor(agent?.cwd ?? transcript.data?.session.projectPath);
-  const doneFlash = useDoneFlash(agent?.name);
+  const doneFlash = useDoneFlash(agentRef);
   const showChat = panel.kind === 'term' && chattable && view === 'chat';
 
   const title =
     panel.kind === 'term' ? (
       <>
         {agent ? agentLabel(agent, agents) : panel.name}
+        {agent && isRemoteHost(agent.host) && (
+          <span className="ml-1.5 rounded-sm border border-edge bg-surface2 px-1 py-px text-[8.5px] font-semibold uppercase tracking-[0.08em] text-mut">
+            {agent.host}
+          </span>
+        )}
         {agent && (
           <span
             className="ml-2 text-[9.5px] font-semibold uppercase tracking-[0.14em]"
             style={{ color: STATUS_COLOR[agent.status] }}
           >
             {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
-            {agent.status === 'working' && <WorkingTimer name={agent.name} />}
+            {agent.status === 'working' && <WorkingTimer name={agentRef!} />}
           </span>
         )}
         {agent && <ModelEffortMenu agent={agent} summary={summary} className="ml-2 text-faint" />}
@@ -61,18 +70,21 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
     ) : (
       truncate(transcript.data?.session.title ?? 'conversation', 60)
     );
-  const fullHref = panel.kind === 'term' ? `/agents/${panel.name}` : `/s/${panel.provider}/${panel.id}`;
+  const fullHref =
+    panel.kind === 'term'
+      ? `/agents/${encodeURIComponent(panel.name)}`
+      : `/s/${panel.provider}/${panel.id}${isRemoteHost(panel.host) ? `?host=${panel.host}` : ''}`;
   const dotColor = chat ? (chat.provider === 'claude' ? 'var(--color-claude)' : 'var(--color-codex)') : undefined;
 
   const actions = (
     <>
-      {agent && <SnoozeButton name={agent.name} muted={doneFlash.muted} />}
+      {agent && <SnoozeButton name={agentRef!} muted={doneFlash.muted} />}
       {agent && (
         <ConfirmButton
           label="Kill"
           confirmLabel="Really kill this agent?"
-          description={agent.name}
-          onConfirm={() => void killNow(agent.name)}
+          description={agentRef}
+          onConfirm={() => void killNow(agentRef!)}
           className="mr-1"
         />
       )}
@@ -81,7 +93,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
           data-flip-view
           onClick={() => setView((v) => (v === 'chat' ? 'term' : 'chat'))}
           className="rounded p-1 text-mut hover:bg-surface2 hover:text-ink"
-          title={view === 'chat' ? 'show raw terminal (⌥T)' : 'show chat (⌥T)'}
+          title={view === 'chat' ? `show raw terminal (${altLabel('T')})` : `show chat (${altLabel('T')})`}
         >
           {view === 'chat' ? <SquareTerminal size={13} /> : <MessageSquare size={13} />}
         </button>
@@ -108,7 +120,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
 
   return (
     <Pane
-      agentName={agent?.name}
+      agentName={agentRef}
       icon={
         agent ? (
           <AgentStatusDot status={agent.status} />

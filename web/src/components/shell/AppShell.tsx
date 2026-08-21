@@ -3,24 +3,28 @@ import { Outlet, useNavigate } from 'react-router';
 import type { LaunchAgentRequest } from '@shared/types';
 import { useAgents, useClosedAgents, useKillAgent, useServerEvents } from '../../queries';
 import { useResume } from '../../lib/useResume';
+import { hostOf, refOf } from '../../lib/agentRef';
 import { nudgeTheme } from '../../lib/themes';
+import { cycleDir } from '../../lib/keys';
 import { Sidebar } from './Sidebar';
 import { LaunchAgentModal } from '../agents/LaunchAgentModal';
 import { ConfirmDialog } from '../ui/ConfirmButton';
 
 const KILL_COMBO = /Mac|iP/.test(navigator.platform) ? '⌘⌥⌫' : 'Ctrl+Alt+Backspace';
 
-/** Agent shown by the pane that currently holds keyboard focus, if any. */
+/** Agent (ref) shown by the pane that currently holds keyboard focus, if any. */
 function focusedPaneAgent(): string | undefined {
   const panes = [...document.querySelectorAll<HTMLElement>('[data-pane][data-agent]')];
   return panes.find((p) => p.contains(document.activeElement))?.dataset.agent;
 }
 
-/** Agent whose full page is open, if the route is /agents/:name. */
-const routeAgent = (): string | undefined =>
-  window.location.pathname.match(/^\/agents\/([^/]+)$/)?.[1];
+/** Agent (ref) whose full page is open, if the route is /agents/:ref. */
+const routeAgent = (): string | undefined => {
+  const seg = window.location.pathname.match(/^\/agents\/([^/]+)$/)?.[1];
+  return seg ? decodeURIComponent(seg) : undefined;
+};
 
-type LaunchPrefill = Partial<Pick<LaunchAgentRequest, 'provider' | 'cwd'>>;
+type LaunchPrefill = Partial<Pick<LaunchAgentRequest, 'provider' | 'cwd'>> & { host?: string };
 
 const LaunchContext = createContext<(prefill?: LaunchPrefill) => void>(() => {});
 export const useOpenLaunch = () => useContext(LaunchContext);
@@ -57,7 +61,7 @@ export function AppShell() {
         navigate('/grid');
       } else if (/^[1-9]$/.test(e.key)) {
         const agent = agents[Number(e.key) - 1];
-        if (agent) navigate(`/agents/${agent.name}`);
+        if (agent) navigate(`/agents/${encodeURIComponent(refOf(agent))}`);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -76,7 +80,7 @@ export function AppShell() {
       if (!last) return;
       e.preventDefault();
       e.stopPropagation();
-      void resume(last.provider!, last.sessionId!);
+      void resume(last.provider!, last.sessionId!, hostOf(last));
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -86,7 +90,7 @@ export function AppShell() {
   // otherwise relay the keys to the agent's pty) and browser defaults.
   // ⌥Tab / ⌥⇧Tab cycles focus across visible panes in visual order — the
   // next rung under ⌘Tab (apps) and ⌃Tab (browser tabs); on Windows/Linux
-  // the OS app switcher owns Alt+Tab, so that chord never reaches us there.
+  // the OS app switcher owns Alt+Tab, so ⌥]/⌥[ cycle too (see lib/keys.ts).
   // ⌥S sleeps (snoozes) the focused pane, ⌥F toggles it fullscreen (⌥Tab
   // also drops the zoom, tmux-style; a zoomed pane unmounting takes the
   // zoom with it) — primary pane when none is focused. ⌥C cycles the theme
@@ -146,12 +150,12 @@ export function AppShell() {
       if (!e.altKey || e.metaKey || e.ctrlKey) return;
       const panes = [...document.querySelectorAll<HTMLElement>('[data-pane]')];
       const focused = panes.find((p) => p.contains(document.activeElement));
-      if (e.key === 'Tab') {
+      const dir = cycleDir(e);
+      if (dir) {
         if (!panes.length) return;
         e.preventDefault();
         e.stopPropagation();
         unzoom();
-        const dir = e.shiftKey ? -1 : 1;
         const cur = focused ? panes.indexOf(focused) : -1;
         const next =
           cur < 0 ? (dir === 1 ? 0 : panes.length - 1) : (cur + dir + panes.length) % panes.length;
@@ -231,11 +235,11 @@ export function AppShell() {
   const [killDialog, setKillDialog] = useState<string | null>(null);
   const [killHint, setKillHint] = useState<string | null>(null);
   const killNow = useKillAgent();
-  const doKill = useCallback((name: string) => {
-    void killNow(name);
+  const doKill = useCallback((ref: string) => {
+    void killNow(ref);
     // leave the dead agent's page right away — the optimistic removal has
     // already blanked it
-    if (routeAgent() === name) navigate('/');
+    if (routeAgent() === ref) navigate('/');
   }, [killNow, navigate]);
   useEffect(() => {
     const isMac = /Mac|iP/.test(navigator.platform);
@@ -250,7 +254,7 @@ export function AppShell() {
         return;
       }
       const target = focusedPaneAgent() ?? routeAgent();
-      if (target && agents.some((a) => a.name === target)) {
+      if (target && agents.some((a) => refOf(a) === target)) {
         setKillDialog(target);
       } else {
         setKillHint(`click an agent pane first — then ${KILL_COMBO} kills it`);

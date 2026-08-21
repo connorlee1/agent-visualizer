@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import type { AgentStatus } from '@shared/types';
 
 // "Truly" done: the agent must hold 'waiting' this long without resuming.
@@ -297,6 +297,17 @@ const snapshotFor = (name: string | undefined): number => {
   const e = name ? entries.get(name) : undefined;
   return e ? (e.flash ? 1 : 0) | (e.muted ? 2 : 0) | (e.remind ? 4 : 0) : 0;
 };
+
+/**
+ * Reactive slept-agent set, for wall-level concerns (e.g. the grid's
+ * awake-only filter). Includes stale names for exited agents — intersect
+ * with the live agent list. The snapshot is a joined string so unrelated
+ * emits (flash/remind ticks) compare equal and skip the re-render.
+ */
+export function useMutedNames(): Set<string> {
+  const joined = useSyncExternalStore(subscribe, () => [...mutedNames].sort().join('\n'));
+  return useMemo(() => new Set(joined ? joined.split('\n') : []), [joined]);
+}
 
 /**
  * Repeating end-of-work notifier (read-only view; syncDoneFlash drives the

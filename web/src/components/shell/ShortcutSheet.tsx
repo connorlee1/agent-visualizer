@@ -1,28 +1,29 @@
 import { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
+import { altLabel, cycleLabel, isMac, modLabel } from '../../lib/keys';
 
 const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]> }> = [
   {
     title: 'Anywhere',
     rows: [
-      ['⌘K', 'launch a new agent'],
+      [modLabel('K'), 'launch a new agent'],
       ['1–9', 'jump to the nth running agent'],
-      ['⌥U', 'reopen the last closed agent'],
+      [altLabel('U'), 'reopen the last closed agent'],
       ['g', 'open the wall'],
-      ['⌥C', 'next color theme'],
-      ['⌥?', 'this cheatsheet'],
+      [altLabel('C'), 'next color theme'],
+      [altLabel('?'), 'this cheatsheet'],
     ],
   },
   {
     title: 'Panels',
     rows: [
-      ['⌥⇥ / ⌥⇧⇥', 'focus next / previous panel'],
-      ['⌥S', 'sleep or wake the focused panel'],
-      ['⌥F', 'fullscreen the focused panel (toggle)'],
-      ['⌥T', 'flip the focused panel chat ↔ terminal'],
-      ['⌥↓', 'jump to the latest message / output'],
-      ['⌥R', 'expand / collapse the recap strip'],
-      ['⌘⌥⌫ ×2', 'kill the focused panel’s agent'],
+      [cycleLabel(), 'focus next / previous panel'],
+      [altLabel('S'), 'sleep or wake the focused panel'],
+      [altLabel('F'), 'fullscreen the focused panel (toggle)'],
+      [altLabel('T'), 'flip the focused panel chat ↔ terminal'],
+      [altLabel('↓'), 'jump to the latest message / output'],
+      [altLabel('R'), 'expand / collapse the recap strip'],
+      [`${isMac ? '⌘⌥⌫' : 'Ctrl+Alt+⌫'} ×2`, 'kill the focused panel’s agent'],
       ['click', 'focus a panel'],
     ],
   },
@@ -37,8 +38,9 @@ const SECTIONS: Array<{ title: string; rows: Array<[keys: string, what: string]>
   {
     title: 'Elsewhere',
     rows: [
+      [altLabel('A'), 'show only awake panes, on the wall'],
       ['/', 'focus search, on the home page'],
-      ['⌘⏎', 'launch, in the new-agent form'],
+      [modLabel('⏎'), 'launch, in the new-agent form'],
     ],
   },
 ];
@@ -97,7 +99,7 @@ export function ShortcutSheet() {
         className={`rounded-md p-2 ${
           open ? 'bg-surface2 text-ink' : 'text-mut hover:bg-surface2 hover:text-ink'
         }`}
-        title="keyboard shortcuts (⌥?)"
+        title={`keyboard shortcuts (${altLabel('?')})`}
       >
         <Keyboard size={15} />
       </button>

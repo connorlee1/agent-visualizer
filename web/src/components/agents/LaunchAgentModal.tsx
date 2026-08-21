@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { LaunchAgentRequest, Provider } from '@shared/types';
 import { launchAgent } from '../../lib/api';
-import { useProjects } from '../../queries';
+import { makeRef, LOCAL_HOST } from '../../lib/agentRef';
+import { useHosts, useProjects } from '../../queries';
 import { shortPath } from '../../lib/format';
 import { requestComposerFocus } from '../../lib/focusAgent';
 import { Modal } from '../ui/Modal';
@@ -15,11 +16,13 @@ const inputClass =
 
 export function LaunchAgentModal({ open, prefill, onClose }: {
   open: boolean;
-  prefill?: Partial<Pick<LaunchAgentRequest, 'provider' | 'cwd'>>;
+  prefill?: Partial<Pick<LaunchAgentRequest, 'provider' | 'cwd'>> & { host?: string };
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const { data: projects } = useProjects();
+  const { data: hosts } = useHosts();
+  const [host, setHost] = useState<string>(LOCAL_HOST);
+  const { data: projects } = useProjects(host);
   const [provider, setProvider] = useState<Provider>('claude');
   const [title, setTitle] = useState('');
   const [projectChoice, setProjectChoice] = useState<string>(CUSTOM);
@@ -44,6 +47,7 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
   useEffect(() => {
     if (!open) return;
     setProvider(prefill?.provider ?? 'claude');
+    setHost(prefill?.host ?? LOCAL_HOST);
     if (prefill?.cwd) {
       setProjectChoice(prefill.cwd);
       setCustomPath(prefill.cwd);
@@ -58,6 +62,19 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
     nameRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // switching machines invalidates the picked project — its paths belong to
+  // the previous machine
+  const switchHost = (next: string) => {
+    setHost(next);
+    setProjectChoice(CUSTOM);
+  };
+  useEffect(() => {
+    if (open && projectChoice === CUSTOM && !customPath && projects?.length) {
+      setProjectChoice(projects[0].path);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
 
   const submit = async () => {
     const cwd = projectChoice === CUSTOM ? customPath.trim() : projectChoice;
@@ -75,8 +92,8 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
         model: model.trim() || undefined,
         permissionMode: permissionMode || undefined,
         initialPrompt: prompt.trim() || undefined,
-      });
-      requestComposerFocus(res.tmuxName);
+      }, host);
+      requestComposerFocus(makeRef(host, res.tmuxName));
       onClose();
       navigate('/grid');
     } catch (err) {
@@ -126,6 +143,24 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
             className={inputClass}
           />
         </label>
+
+        {(hosts?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-1 text-[12px] text-mut">
+            Machine
+            <Select
+              value={host}
+              onChange={switchHost}
+              options={[
+                { value: LOCAL_HOST, label: 'this mac' },
+                ...(hosts?.map((h) => ({
+                  value: h.id,
+                  label: h.name,
+                  hint: h.status === 'connected' ? undefined : `(${h.status})`,
+                })) ?? []),
+              ]}
+            />
+          </div>
+        )}
 
         {/* not a <label>: it would forward clicks on the dropdown's
             click-away overlay back to the trigger button, reopening it */}

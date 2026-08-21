@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Search, TerminalSquare } from 'lucide-react';
 import { useAgents, useClosedAgents, useRecentSessions } from '../queries';
+import { refOf } from '../lib/agentRef';
 import { AgentCard } from '../components/agents/AgentCard';
 import { ClosedAgentRow } from '../components/agents/ClosedAgentRow';
 import { ConversationRow } from '../components/projects/ConversationRow';
@@ -91,7 +92,7 @@ export function HomePage() {
             shownAgents.length > 0 && (
               <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
                 {shownAgents.map((agent) => (
-                  <AgentCard key={agent.name} agent={agent} />
+                  <AgentCard key={refOf(agent)} agent={agent} />
                 ))}
               </div>
             )

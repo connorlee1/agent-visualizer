@@ -4,7 +4,9 @@ import { Columns2, SquareTerminal, X } from 'lucide-react';
 import { useAgents, useKillAgent } from '../queries';
 import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../lib/status';
 import { agentLabel, basename } from '../lib/format';
+import { altLabel } from '../lib/keys';
 import { useLinkedSession, useLinkedSummary } from '../lib/useLinkedSession';
+import { isRemoteHost, refOf } from '../lib/agentRef';
 import { useDoneFlash } from '../lib/useDoneFlash';
 import { decodePanelRef, encodePanelRef, type PanelRef } from '../lib/panelRef';
 import { AgentStatusDot } from '../components/agents/AgentStatusDot';
@@ -32,14 +34,16 @@ function loadPanels(): PanelRef[] {
 }
 
 export function AgentPage() {
+  // :tmuxName is an agent REF — "host:name" for remote machines, bare name locally
   const { tmuxName } = useParams<{ tmuxName: string }>();
   const navigate = useNavigate();
   const { agents, isLoading } = useAgents();
   const killNow = useKillAgent();
-  const agent = agents.find((a) => a.name === tmuxName);
+  const agent = agents.find((a) => refOf(a) === tmuxName);
+  const agentRef = agent ? refOf(agent) : tmuxName!;
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
-  const doneFlash = useDoneFlash(agent?.name);
+  const doneFlash = useDoneFlash(agent ? agentRef : undefined);
 
   const [showTerminal, setShowTerminal] = useState(
     () => localStorage.getItem('terminalOpen') === '1',
@@ -67,23 +71,23 @@ export function AgentPage() {
     setPanels(panels.filter((x) => encodePanelRef(x) !== key));
   };
   // a panel showing the agent already on the primary pane is meaningless
-  const activePanels = panels.filter((p) => !(p.kind === 'term' && p.name === tmuxName));
+  const activePanels = panels.filter((p) => !(p.kind === 'term' && p.name === agentRef));
 
   // clicking the tab of a panel'd agent swaps it with the previous primary
-  const prevAgentRef = useRef(tmuxName);
+  const prevAgentRef = useRef(agentRef);
   useEffect(() => {
     const prev = prevAgentRef.current;
-    if (tmuxName && prev && prev !== tmuxName) {
-      const idx = panels.findIndex((p) => p.kind === 'term' && p.name === tmuxName);
+    if (agentRef && prev && prev !== agentRef) {
+      const idx = panels.findIndex((p) => p.kind === 'term' && p.name === agentRef);
       if (idx >= 0) {
         const next = [...panels];
         next[idx] = { kind: 'term', name: prev };
         setPanels(next);
       }
     }
-    prevAgentRef.current = tmuxName;
+    prevAgentRef.current = agentRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tmuxName]);
+  }, [agentRef]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -125,7 +129,7 @@ export function AgentPage() {
         style={{ color: STATUS_COLOR[agent.status] }}
       >
         {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
-        {agent.status === 'working' && <WorkingTimer name={agent.name} />}
+        {agent.status === 'working' && <WorkingTimer name={agentRef} />}
       </span>
       {hasChat && (
         <button
@@ -134,7 +138,7 @@ export function AgentPage() {
           className={`flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] ${
             showTerminal ? 'border-faint text-ink' : 'border-edge text-mut hover:text-ink'
           }`}
-          title="toggle raw terminal (t / ⌥T)"
+          title={`toggle raw terminal (t / ${altLabel('T')})`}
         >
           <SquareTerminal size={11} /> Terminal
         </button>
@@ -155,19 +159,19 @@ export function AgentPage() {
           onClose={() => setPickerOpen(false)}
           onSelect={addPanel}
           excludeRefs={[
-            encodePanelRef({ kind: 'term', name: agent.name }),
+            encodePanelRef({ kind: 'term', name: agentRef }),
             ...panels.map(encodePanelRef),
           ]}
         />
       </div>
-      <SnoozeButton name={agent.name} muted={doneFlash.muted} />
+      <SnoozeButton name={agentRef} muted={doneFlash.muted} />
       <ConfirmButton
         label="Kill"
         confirmLabel="Really kill this agent?"
-        description={agent.name}
+        description={agentRef}
         title={`kill this agent (or ${/Mac|iP/.test(navigator.platform) ? '⌘⌥⌫' : 'Ctrl+Alt+Backspace'} twice)`}
         onConfirm={() => {
-          void killNow(agent.name);
+          void killNow(agentRef);
           navigate('/');
         }}
       />
@@ -178,6 +182,11 @@ export function AgentPage() {
   const title = (
     <>
       {agentLabel(agent, agents)}
+      {isRemoteHost(agent.host) && (
+        <span className="ml-2 rounded-sm border border-edge bg-surface2 px-1 py-px text-[9px] font-semibold uppercase tracking-[0.08em] text-mut">
+          {agent.host}
+        </span>
+      )}
       {agent.provider && (
         <span className="ml-2 text-faint">
           {agent.provider}
@@ -189,7 +198,7 @@ export function AgentPage() {
 
   const primaryPane = (
     <Pane
-      agentName={agent.name}
+      agentName={agentRef}
       icon={<AgentStatusDot status={agent.status} />}
       title={title}
       titleAttr={agent.cwd}
@@ -199,7 +208,7 @@ export function AgentPage() {
       dim={doneFlash.muted}
       actions={frameActions}
     >
-      {hasChat ? <ChatPane agent={agent} /> : <XtermPane key={agent.name} name={agent.name} />}
+      {hasChat ? <ChatPane agent={agent} /> : <XtermPane key={agentRef} name={agentRef} />}
     </Pane>
   );
 
@@ -221,7 +230,7 @@ export function AgentPage() {
 
   const terminalPane = (
     <Pane
-      agentName={agent.name}
+      agentName={agentRef}
       title={
         <>
           {agent.title ?? (agent.cwd ? basename(agent.cwd) : agent.name)}
@@ -233,13 +242,13 @@ export function AgentPage() {
           data-term-toggle
           onClick={toggleTerminal}
           className="rounded p-1 text-mut hover:bg-surface2 hover:text-ink"
-          title="hide terminal (t / ⌥T)"
+          title={`hide terminal (t / ${altLabel('T')})`}
         >
           <X size={13} />
         </button>
       }
     >
-      <XtermPane key={agent.name} name={agent.name} />
+      <XtermPane key={agentRef} name={agentRef} />
     </Pane>
   );
 
@@ -248,8 +257,8 @@ export function AgentPage() {
       <div className="flex items-center gap-0.5 border-b border-edge bg-surface px-2 pt-1.5">
         {agents.map((a) => (
           <NavLink
-            key={a.name}
-            to={`/agents/${a.name}`}
+            key={refOf(a)}
+            to={`/agents/${encodeURIComponent(refOf(a))}`}
             className={({ isActive }) =>
               `flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 font-mono text-[12px] ${
                 isActive ? 'border-edge bg-bg text-ink' : 'border-transparent text-mut hover:text-ink'
@@ -258,7 +267,8 @@ export function AgentPage() {
           >
             <AgentStatusDot status={a.status} />
             {agentLabel(a, agents)}
-            {activePanels.some((p) => p.kind === 'term' && p.name === a.name) && (
+            {isRemoteHost(a.host) && <span className="text-[9px] uppercase text-faint">{a.host}</span>}
+            {activePanels.some((p) => p.kind === 'term' && p.name === refOf(a)) && (
               <Columns2 size={11} className="text-faint" />
             )}
           </NavLink>
