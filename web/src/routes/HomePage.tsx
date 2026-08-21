@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { Search, TerminalSquare } from 'lucide-react';
+import { EyeOff, Search, TerminalSquare } from 'lucide-react';
 import { useAgents, useClosedAgents, useRecentSessions } from '../queries';
 import { refOf } from '../lib/agentRef';
+import { useHiddenAgents } from '../lib/hiddenAgents';
 import { AgentCard } from '../components/agents/AgentCard';
 import { ClosedAgentRow } from '../components/agents/ClosedAgentRow';
 import { ConversationRow } from '../components/projects/ConversationRow';
@@ -30,13 +31,19 @@ export function HomePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // hidden agents leave the grid but stay searchable (the recovery path,
+  // alongside the reveal row below the grid)
+  const hiddenSet = useHiddenAgents();
+  const [showHidden, setShowHidden] = useState(false);
+  const hiddenCount = agents.filter((a) => hiddenSet.has(refOf(a))).length;
+
   const { shownAgents, shownClosed, shownRecents } = useMemo(() => {
     const matches = (...fields: Array<string | undefined>) =>
       fields.some((f) => f?.toLowerCase().includes(q));
     return {
       shownAgents: q
         ? agents.filter((a) => matches(a.title, a.cwd, a.name, a.sessionId))
-        : agents,
+        : agents.filter((a) => showHidden || !hiddenSet.has(refOf(a))),
       shownClosed: q
         ? (closed ?? []).filter((e) => matches(e.title, e.cwd, e.name, e.sessionId, e.conversationTitle))
         : (closed ?? []).slice(0, 8),
@@ -44,7 +51,7 @@ export function HomePage() {
         ? (recents ?? []).filter((s) => matches(s.title, s.projectPath, s.agentName, s.id)).slice(0, 20)
         : recents ?? [],
     };
-  }, [q, agents, closed, recents]);
+  }, [q, agents, closed, recents, hiddenSet, showHidden]);
 
   const nothingMatches = q && !shownAgents.length && !shownClosed.length && !shownRecents.length;
 
@@ -92,10 +99,24 @@ export function HomePage() {
             shownAgents.length > 0 && (
               <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
                 {shownAgents.map((agent) => (
-                  <AgentCard key={refOf(agent)} agent={agent} />
+                  <div key={refOf(agent)} className={hiddenSet.has(refOf(agent)) ? 'opacity-50' : undefined}>
+                    <AgentCard agent={agent} />
+                  </div>
                 ))}
               </div>
             )
+          )}
+          {hiddenCount > 0 && !q && (
+            <button
+              onClick={() => setShowHidden((v) => !v)}
+              className="mt-3 flex items-center gap-1.5 text-[11px] text-faint hover:text-mut"
+              title="hidden agents keep running in tmux — reveal them here to unhide via their ⋮ menu"
+            >
+              <EyeOff size={11} />
+              {showHidden
+                ? 'conceal hidden agents'
+                : `${hiddenCount} hidden agent${hiddenCount === 1 ? '' : 's'} — show`}
+            </button>
           )}
 
           {shownClosed.length > 0 && (

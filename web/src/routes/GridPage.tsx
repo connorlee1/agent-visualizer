@@ -5,6 +5,7 @@ import { useAgents } from '../queries';
 import { useMutedNames } from '../lib/useDoneFlash';
 import { basename } from '../lib/format';
 import { altLabel } from '../lib/keys';
+import { useHiddenAgents } from '../lib/hiddenAgents';
 import { refOf } from '../lib/agentRef';
 import { dirColorMap, dimmed } from '../lib/dirColor';
 import { SidePanel } from '../components/panel/SidePanel';
@@ -29,7 +30,9 @@ function orderedNames(agents: TmuxAgent[], order: string[]): string[] {
  * also appears single-directory whenever that toggle is relevant.
  */
 export function GridPage() {
-  const { agents } = useAgents();
+  const { agents: allAgents } = useAgents();
+  const hiddenSet = useHiddenAgents();
+  const agents = allAgents.filter((a) => !hiddenSet.has(refOf(a)));
   const [order, setOrder] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('wallOrder') ?? '[]');

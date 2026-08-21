@@ -8,6 +8,7 @@ import { ShortcutSheet } from './ShortcutSheet';
 import { MachinesSection } from './MachinesSection';
 import { altLabel, modLabel } from '../../lib/keys';
 import { isRemoteHost, refOf } from '../../lib/agentRef';
+import { useHiddenAgents } from '../../lib/hiddenAgents';
 import { agentLabel } from '../../lib/format';
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -18,7 +19,9 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function Sidebar() {
-  const { agents } = useAgents();
+  const { agents: allAgents } = useAgents();
+  const hiddenSet = useHiddenAgents();
+  const agents = allAgents.filter((a) => !hiddenSet.has(refOf(a)));
   const openLaunch = useOpenLaunch();
 
   return (

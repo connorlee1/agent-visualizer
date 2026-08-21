@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Wrench } from 'lucide-react';
 import type { ContentBlock, Message, Provider } from '@shared/types';
 import { MessageBlock } from './MessageBlock';
+import { FileOverlay, OpenFileContext } from './FileOverlay';
+import { filePathOf } from './ToolCallBlock';
 
 type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>;
 
@@ -16,6 +18,18 @@ type RenderItem =
   | { kind: 'steps'; id: string; count: number; msgs: Message[] };
 
 const HARNESS_RE = />>> (TRANSCRIPT DELTA|APPROVAL REQUEST) /;
+
+/** Files touched by a folded step group, surfaced as clickable chips. */
+function stepFiles(msgs: Message[]): string[] {
+  const out: string[] = [];
+  for (const m of msgs) {
+    for (const b of m.content) {
+      const p = b.kind === 'tool_use' ? filePathOf(b.input) : null;
+      if (p && !out.includes(p)) out.push(p);
+    }
+  }
+  return out;
+}
 
 const textOf = (m: Message): string =>
   m.content.filter((b) => b.kind === 'text').map((b) => (b as { text: string }).text).join('\n');
@@ -74,10 +88,12 @@ function toRenderItems(list: Message[], minimal: boolean): RenderItem[] {
   return out;
 }
 
-export function TranscriptView({ messages, provider, live = false, hasEarlier = false, onLoadEarlier, loadingEarlier = false, forceToolsOpen, narrow = false, minimal = false, footer }: {
+export function TranscriptView({ messages, provider, live = false, hasEarlier = false, onLoadEarlier, loadingEarlier = false, forceToolsOpen, narrow = false, minimal = false, footer, host }: {
   messages: Message[];
   provider: Provider;
   live?: boolean;
+  /** Machine the conversation lives on, for fetching files it references. */
+  host?: string;
   hasEarlier?: boolean;
   onLoadEarlier?: () => void;
   loadingEarlier?: boolean;
@@ -94,6 +110,7 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const [viewFile, setViewFile] = useState<string | null>(null);
   const initialised = useRef(false);
   const prevFirstId = useRef<string | undefined>(undefined);
   const prevScrollHeight = useRef(0);
@@ -184,6 +201,7 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
   let lastRole: string | null = null;
 
   return (
+    <OpenFileContext.Provider value={setViewFile}>
     <div className="relative h-full min-h-0">
       <div ref={scrollRef} data-transcript-scroll className="h-full overflow-y-auto">
         <div className={`center-col mx-auto flex flex-col gap-2 px-4 py-4 ${narrow ? '' : 'max-w-[880px]'}`}>
@@ -198,22 +216,40 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
             if (item.kind === 'steps') {
               lastRole = null;
               const open = expandedSteps.has(item.id);
+              const files = stepFiles(item.msgs);
+              const toggle = () =>
+                setExpandedSteps((s) => {
+                  const next = new Set(s);
+                  if (open) next.delete(item.id);
+                  else next.add(item.id);
+                  return next;
+                });
               return (
                 <div key={item.id}>
-                  <button
-                    onClick={() =>
-                      setExpandedSteps((s) => {
-                        const next = new Set(s);
-                        if (open) next.delete(item.id);
-                        else next.add(item.id);
-                        return next;
-                      })
-                    }
-                    className="flex items-center gap-1.5 pl-1 font-mono text-[11px] text-[color:var(--ansi-blue)] opacity-75 hover:opacity-100"
-                  >
-                    <Wrench size={10} />
-                    {item.count} step{item.count === 1 ? '' : 's'} {open ? '▾' : '▸'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-1.5 pl-1">
+                    <button
+                      onClick={toggle}
+                      className="flex items-center gap-1.5 font-mono text-[11px] text-[color:var(--ansi-blue)] opacity-75 hover:opacity-100"
+                    >
+                      <Wrench size={10} />
+                      {item.count} step{item.count === 1 ? '' : 's'} {open ? '▾' : '▸'}
+                    </button>
+                    {files.slice(0, 8).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setViewFile(p)}
+                        title={p}
+                        className="rounded border border-edge bg-surface2 px-1.5 py-px font-mono text-[10px] text-mut hover:text-ink"
+                      >
+                        {p.split('/').pop()}
+                      </button>
+                    ))}
+                    {files.length > 8 && (
+                      <button onClick={toggle} className="font-mono text-[10px] text-faint hover:text-ink">
+                        +{files.length - 8} more
+                      </button>
+                    )}
+                  </div>
                   {open &&
                     item.msgs.map((m) => (
                       <MessageBlock
@@ -258,6 +294,10 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
           {live ? '↓ following paused — jump to latest' : '↓ jump to latest'}
         </button>
       )}
+      {viewFile && (
+        <FileOverlay path={viewFile} host={host} onClose={() => setViewFile(null)} />
+      )}
     </div>
+    </OpenFileContext.Provider>
   );
 }

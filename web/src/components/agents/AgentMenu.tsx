@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { MoreVertical, Pencil } from 'lucide-react';
+import { Eye, EyeOff, MoreVertical, Pencil } from 'lucide-react';
 import type { TmuxAgent } from '@shared/types';
 import { renameAgent } from '../../lib/api';
 import { hostOf, isRemoteHost, refOf } from '../../lib/agentRef';
+import { toggleAgentHidden, useHiddenAgents } from '../../lib/hiddenAgents';
 import { basename, shortPath, truncate } from '../../lib/format';
 import { useLinkedSession, useLinkedSummary } from '../../lib/useLinkedSession';
 
@@ -35,6 +36,7 @@ export function AgentMenu({ agent }: { agent: TmuxAgent }) {
   const queryClient = useQueryClient();
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
+  const isHidden = useHiddenAgents().has(refOf(agent));
 
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -120,6 +122,21 @@ export function AgentMenu({ agent }: { agent: TmuxAgent }) {
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-[12px] text-ink hover:bg-surface2"
                 >
                   <Pencil size={12} /> Rename…
+                </button>
+                <button
+                  onClick={() => {
+                    toggleAgentHidden(refOf(agent));
+                    close();
+                  }}
+                  title={
+                    isHidden
+                      ? 'show this agent in the dashboard again'
+                      : 'keep it running in tmux but drop it from every list — unhide from the home page'
+                  }
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-[12px] text-ink hover:bg-surface2"
+                >
+                  {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                  {isHidden ? 'Show in dashboard' : 'Hide from dashboard'}
                 </button>
                 <div className="my-1 border-t border-edge" />
                 {agent.cwd && (

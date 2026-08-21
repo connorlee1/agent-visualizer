@@ -162,6 +162,60 @@ router.get('/sessions/:provider/:id/transcript', asyncRoute(async (req, res) => 
 
 const expandHome = (p: string) => (p === '~' || p.startsWith('~/') ? p.replace('~', os.homedir()) : p);
 
+// Files referenced in transcripts, fetched for viewing in the UI. Text comes
+// back as JSON (/file), images as raw bytes (/file/raw) for <img> tags.
+// Absolute paths and a size cap; other binaries are refused, not mangled.
+async function statViewableFile(path: string, res: any, maxBytes: number): Promise<import('node:fs').Stats | null> {
+  if (!path.startsWith('/')) {
+    res.status(400).json({ error: 'absolute path required' });
+    return null;
+  }
+  let stat;
+  try {
+    stat = await fs.stat(path);
+  } catch {
+    res.status(404).json({ error: 'file not found' });
+    return null;
+  }
+  if (!stat.isFile()) {
+    res.status(404).json({ error: 'not a file' });
+    return null;
+  }
+  if (stat.size > maxBytes) {
+    res.status(413).json({ error: `file too large to view (${Math.round(stat.size / 1024)} KB)` });
+    return null;
+  }
+  return stat;
+}
+
+router.get('/file', asyncRoute(async (req, res) => {
+  const path = expandHome(String(req.query.path ?? ''));
+  if (!(await statViewableFile(path, res, 2_000_000))) return;
+  const buf = await fs.readFile(path);
+  if (buf.includes(0)) {
+    res.status(415).json({ error: 'binary file — nothing to render' });
+    return;
+  }
+  res.json({ path, content: buf.toString('utf8') });
+}));
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon', bmp: 'image/bmp',
+};
+
+router.get('/file/raw', asyncRoute(async (req, res) => {
+  const path = expandHome(String(req.query.path ?? ''));
+  const type = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? ''];
+  if (!type) {
+    res.status(400).json({ error: 'raw serving is for images only' });
+    return;
+  }
+  if (!(await statViewableFile(path, res, 20_000_000))) return;
+  res.set('Content-Type', type);
+  res.send(await fs.readFile(path));
+}));
+
 /** Conversations currently owned by a running agent: "provider:sessionId" -> agent. */
 async function liveConversations(): Promise<Map<string, TmuxAgent>> {
   const agents = await listAgents();

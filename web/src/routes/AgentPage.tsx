@@ -5,6 +5,7 @@ import { useAgents, useKillAgent } from '../queries';
 import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../lib/status';
 import { agentLabel, basename } from '../lib/format';
 import { altLabel } from '../lib/keys';
+import { useHiddenAgents } from '../lib/hiddenAgents';
 import { useLinkedSession, useLinkedSummary } from '../lib/useLinkedSession';
 import { isRemoteHost, refOf } from '../lib/agentRef';
 import { useDoneFlash } from '../lib/useDoneFlash';
@@ -41,6 +42,8 @@ export function AgentPage() {
   const killNow = useKillAgent();
   const agent = agents.find((a) => refOf(a) === tmuxName);
   const agentRef = agent ? refOf(agent) : tmuxName!;
+  // hidden agents leave the tab strip — except the one whose page this is
+  const hiddenSet = useHiddenAgents();
   const linked = useLinkedSession(agent);
   const summary = useLinkedSummary(agent);
   const doneFlash = useDoneFlash(agent ? agentRef : undefined);
@@ -255,7 +258,7 @@ export function AgentPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-0.5 border-b border-edge bg-surface px-2 pt-1.5">
-        {agents.map((a) => (
+        {agents.filter((a) => !hiddenSet.has(refOf(a)) || refOf(a) === agentRef).map((a) => (
           <NavLink
             key={refOf(a)}
             to={`/agents/${encodeURIComponent(refOf(a))}`}

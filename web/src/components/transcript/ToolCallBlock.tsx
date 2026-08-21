@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import type { ContentBlock } from '@shared/types';
 import { shortPath, truncate } from '../../lib/format';
+import { OpenFileContext } from './FileOverlay';
 
 type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>;
 
@@ -20,6 +21,16 @@ function summarizeInput(input: unknown): string {
   return json === '{}' ? '' : truncate(json, 90);
 }
 
+/** The tool call's target file, openable in the in-pane viewer. */
+export function filePathOf(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  for (const key of ['file_path', 'path', 'notebook_path']) {
+    if (typeof o[key] === 'string') return o[key] as string;
+  }
+  return null;
+}
+
 export function ToolCallBlock({ name, input, result, forceOpen }: {
   name: string;
   input: unknown;
@@ -27,9 +38,12 @@ export function ToolCallBlock({ name, input, result, forceOpen }: {
   forceOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const openFile = useContext(OpenFileContext);
   useEffect(() => {
     if (forceOpen !== undefined) setOpen(forceOpen);
   }, [forceOpen]);
+
+  const filePath = filePathOf(input);
 
   return (
     <div className="my-1">
@@ -42,7 +56,20 @@ export function ToolCallBlock({ name, input, result, forceOpen }: {
         <span className="text-faint">{open ? '▾' : '▸'}</span>
         <Wrench size={11} className="shrink-0 text-faint" />
         <span className="font-medium text-[color:var(--ansi-magenta)]">{name}</span>
-        <span className="truncate text-faint">{summarizeInput(input)}</span>
+        {filePath ? (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              openFile(filePath);
+            }}
+            className="truncate text-faint underline decoration-dotted underline-offset-2 hover:text-ink"
+            title="view file"
+          >
+            {summarizeInput(input)}
+          </span>
+        ) : (
+          <span className="truncate text-faint">{summarizeInput(input)}</span>
+        )}
         {result?.isError && <span className="shrink-0">✕ error</span>}
       </button>
       {open && (

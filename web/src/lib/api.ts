@@ -86,6 +86,14 @@ export const fetchTranscript = async (
   return res.json() as Promise<TranscriptResponse>;
 };
 
+/** A text file off a machine's disk, for viewing in the UI. */
+export const fetchTextFile = (path: string, host?: string) =>
+  request<{ path: string; content: string }>(`${apiBase(host)}/file?path=${encodeURIComponent(path)}`);
+
+/** URL serving an image file's raw bytes, for <img> tags. */
+export const fileRawUrl = (path: string, host?: string) =>
+  `${apiBase(host)}/file/raw?path=${encodeURIComponent(path)}`;
+
 export const launchAgent = (body: LaunchAgentRequest, host?: string) =>
   request<LaunchAgentResponse>(`${apiBase(host)}/agents`, {
     method: 'POST',

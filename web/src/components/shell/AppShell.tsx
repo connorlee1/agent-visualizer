@@ -4,6 +4,7 @@ import type { LaunchAgentRequest } from '@shared/types';
 import { useAgents, useClosedAgents, useKillAgent, useServerEvents } from '../../queries';
 import { useResume } from '../../lib/useResume';
 import { hostOf, refOf } from '../../lib/agentRef';
+import { useHiddenAgents } from '../../lib/hiddenAgents';
 import { nudgeTheme } from '../../lib/themes';
 import { cycleDir } from '../../lib/keys';
 import { Sidebar } from './Sidebar';
@@ -38,7 +39,12 @@ export function AppShell() {
   const [launch, setLaunch] = useState<{ open: boolean; prefill?: LaunchPrefill }>({ open: false });
   const openLaunch = useCallback((prefill?: LaunchPrefill) => setLaunch({ open: true, prefill }), []);
 
-  const approvalsNeeded = agents.filter((a) => a.status === 'needs-approval').length;
+  // hidden agents (lib/hiddenAgents) keep running but leave every listing
+  // surface — including the 1–9 jump order and the title's approval count
+  const hiddenSet = useHiddenAgents();
+  const visibleAgents = agents.filter((a) => !hiddenSet.has(refOf(a)));
+
+  const approvalsNeeded = visibleAgents.filter((a) => a.status === 'needs-approval').length;
   useEffect(() => {
     document.title = approvalsNeeded > 0 ? `(${approvalsNeeded}) agents` : 'agents';
   }, [approvalsNeeded]);
@@ -60,13 +66,13 @@ export function AppShell() {
       if (e.key === 'g') {
         navigate('/grid');
       } else if (/^[1-9]$/.test(e.key)) {
-        const agent = agents[Number(e.key) - 1];
+        const agent = visibleAgents[Number(e.key) - 1];
         if (agent) navigate(`/agents/${encodeURIComponent(refOf(agent))}`);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [agents, navigate, openLaunch]);
+  }, [visibleAgents, navigate, openLaunch]);
 
   // ⌥U reopens the most recently closed agent, like a browser's ⌘⇧T.
   // Separate capture-phase listener (not the bare-key handler above) so it

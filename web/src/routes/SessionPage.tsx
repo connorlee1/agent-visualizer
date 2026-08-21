@@ -179,6 +179,7 @@ export function SessionPage() {
         <TranscriptView
           messages={messages}
           provider={provider}
+          host={host}
           hasEarlier={earliestOffset > 0}
           onLoadEarlier={() => void loadEarlier()}
           loadingEarlier={loadingEarlier}

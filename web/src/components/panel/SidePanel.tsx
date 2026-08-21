@@ -152,6 +152,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
         <TranscriptView
           messages={transcript.data?.messages ?? []}
           provider={panel.provider}
+          host={panel.host}
           live
           narrow
         />

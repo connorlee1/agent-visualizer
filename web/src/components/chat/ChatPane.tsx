@@ -127,6 +127,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
         <TranscriptView
           messages={shown}
           provider={linked?.provider ?? agent.provider ?? 'claude'}
+          host={hostOf(agent)}
           live
           minimal={!showSteps}
           footer={
