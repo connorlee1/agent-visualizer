@@ -82,6 +82,29 @@ export async function resetWindowSize(name: string): Promise<void> {
   await tmux(['set-option', '-w', '-t', name, '-u', 'window-size']);
 }
 
+// Dashboard-launched sessions only — NOT merely the "agent-" prefix, which
+// would (and did) capture bystanders like the remote-setup script's own
+// "agent-visualizer" server session and drag them into tracking/closed lists.
+const MANAGED_RE = /^agent-(claude|codex)-[0-9a-f]{6}$/;
+
+/**
+ * The tmux session THIS server process runs inside, if any (remote-setup.sh
+ * starts the server in one). Resolved once — $TMUX_PANE pins the lookup to
+ * our own pane even when other clients are attached elsewhere.
+ */
+let selfSessionPromise: Promise<string | undefined> | undefined;
+function selfSessionName(): Promise<string | undefined> {
+  selfSessionPromise ??= (async () => {
+    if (!process.env.TMUX || !process.env.TMUX_PANE) return undefined;
+    try {
+      return (await tmux(['display-message', '-p', '-t', process.env.TMUX_PANE, '#{session_name}'])).trim() || undefined;
+    } catch {
+      return undefined; // odd tmux state — safe direction is to filter nothing
+    }
+  })();
+  return selfSessionPromise;
+}
+
 // 30 lines so a full approval dialog (question + wrapped options + hints)
 // survives the trim; consumers each take their own shorter tail.
 function trimPreview(raw: string, maxLines = 30): string {
@@ -93,11 +116,13 @@ export async function listAgents(opts: { previews?: boolean } = {}): Promise<Tmu
   const fmt = [
     '#{session_name}', '#{session_created}', '#{session_attached}',
     '#{@agent_provider}', '#{@agent_cwd}', '#{@agent_resumed_from}',
-    '#{@agent_model}', '#{@agent_session_id}', '#{@agent_title}',
+    '#{@agent_model}', '#{@agent_session_id}', '#{@agent_title}', '#{session_windows}',
   ].join(SEP);
   let sessionsOut = '';
   let panesOut = '';
+  let selfSession: string | undefined;
   try {
+    selfSession = await selfSessionName();
     sessionsOut = await tmux(['list-sessions', '-F', fmt]);
     panesOut = await tmux(['list-panes', '-a', '-F', ['#{session_name}', '#{pane_current_command}', '#{pane_width}', '#{pane_height}', '#{pane_pid}'].join(SEP)]);
   } catch (err) {
@@ -117,9 +142,14 @@ export async function listAgents(opts: { previews?: boolean } = {}): Promise<Tmu
   const agents: TmuxAgent[] = [];
   for (const line of sessionsOut.split('\n')) {
     if (!line) continue;
-    const [name, created, attached, provider, cwd, resumedFrom, model, sessionId, title] = line.split(SEP);
+    const [name, created, attached, provider, cwd, resumedFrom, model, sessionId, title, windows] = line.split(SEP);
+    // The session hosting this server itself is infrastructure, not an agent —
+    // but only when it exists solely for that (single window). A multi-window
+    // session is someone's real workspace that happens to contain the server;
+    // hiding all of it would be far worse than showing the server pane.
+    if (name === selfSession && Number(windows) === 1) continue;
     const pane = panes.get(name) ?? { cmd: '', width: 0, height: 0, pid: 0 };
-    const managed = name.startsWith('agent-');
+    const managed = MANAGED_RE.test(name);
     agents.push({
       name,
       managed,
