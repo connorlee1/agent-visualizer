@@ -46,6 +46,37 @@ export async function readTailLines(filePath: string, fileSize: number, maxBytes
   }
 }
 
+/**
+ * Stream parseable JSON lines starting at a byte offset, returning how many
+ * bytes of COMPLETE (newline-terminated) lines were consumed. A trailing
+ * partial line — an agent mid-append — is not consumed, so the next call
+ * picks it up whole. This is what makes incremental transcript parsing safe:
+ * offsets only ever advance past fully-parsed lines.
+ */
+export async function streamLinesFrom(
+  filePath: string,
+  start: number,
+  onRecord: (record: any) => void,
+): Promise<number> {
+  const stream = createReadStream(filePath, { start });
+  let carry: Buffer = Buffer.alloc(0);
+  let consumed = 0;
+  for await (const chunk of stream) {
+    carry = carry.length ? Buffer.concat([carry, chunk as Buffer]) : (chunk as Buffer);
+    let nl: number;
+    while ((nl = carry.indexOf(0x0a)) >= 0) {
+      const line = carry.subarray(0, nl).toString('utf8').trim();
+      consumed += nl + 1;
+      carry = carry.subarray(nl + 1);
+      if (!line) continue;
+      try {
+        onRecord(JSON.parse(line));
+      } catch { /* malformed line — skipped, but still consumed */ }
+    }
+  }
+  return consumed;
+}
+
 /** Stream every parseable JSON line through the callback. */
 export async function streamLines(filePath: string, onRecord: (record: any) => void): Promise<void> {
   const rl = readline.createInterface({

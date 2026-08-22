@@ -5,18 +5,23 @@ const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g;
 
 export const stripAnsi = (s: string): string => s.replace(ANSI_RE, '');
 
-// Dialog-shaped text only — option cursors and explicit approval prompts.
-// Loose words like "permission"/"approve" appear in normal output too.
-// Patterns are matched against REAL captures of both CLIs' dialogs:
-// - claude cursor is ❯, codex cursor is › — any option number, since a tall
-//   dialog can be scrolled so the cursor isn't on "1." (bare > is excluded:
-//   it's a markdown quote in transcript output)
-// - codex asks "Would you like to run/apply/make the following …"
-// - hint rows ("Press enter to confirm…", option 3's "tell X what to do
-//   differently") anchor to the dialog BOTTOM, so they survive a small pane
-//   that draws only the last few dialog lines
-const APPROVAL_RE =
-  /do you (want to|approve)|[❯›]\s*\d+\.|\(y\/n\)|allow this|waiting for (your )?approval|trust th(e|is)|would you like to (run|apply|make) the following|press enter to (confirm|continue)|tell (claude|codex) what to do differently/i;
+// FALLBACK ONLY — used for sessions without hook coverage (codex, and claude
+// agents not launched by the dashboard). Hook-monitored claude agents get
+// their input-needed state exclusively from agent.approvalPending; matching
+// pane text for them fired on ordinary conversation ("do you want to…" is
+// how agents end half their replies).
+//
+// These patterns are exact DIALOG CHROME captured from real dialogs — full
+// bottom-anchored footer/headline lines the CLIs draw, never phrases that
+// occur in prose. Wrapped prose can start a pane row at any word, so even
+// line-anchoring doesn't make a conversational phrase safe.
+// - claude permission dialog: "Do you want to proceed?" headline + the
+//   "Esc to cancel · Tab to amend · ctrl+e to explain" footer
+// - codex approval dialog: "Would you like to run the following command?"
+//   headline + "Press enter to confirm or esc to cancel" footer; the trust
+//   prompt ends "Press enter to continue"
+const DIALOG_CHROME_RE =
+  /^\s*do you want to proceed\?$|^\s*esc to cancel · tab to amend|^\s*would you like to (run|apply|make) the following|^\s*press enter to (confirm or esc to cancel|continue)$/im;
 
 // Idle long enough that you've likely lost the thread — recap UIs (AgentCard,
 // ChatPane banner) show the LLM idle summary past this point.
@@ -39,17 +44,36 @@ const LIVENESS_WRITE_MS = 120_000;
  * file write) so an interrupted turn can't stick. The pane snapshot text is
  * only pattern-matched for approval dialogs.
  */
+// Foreground commands that plausibly ARE a coding agent — the gate for
+// applying agent heuristics to unmanaged sessions. claude/codex run as
+// themselves or under a JS runtime; anything else in an unmanaged pane
+// (ssh, htop, vim, an installer) is just a program someone is using.
+const AGENT_CMD_RE = /^(claude|codex|node|bun|deno)/;
+
 export function deriveStatus(
   agent: TmuxAgent,
   opts: { changedRecently: boolean; lastWriteAt?: number },
 ): AgentStatus {
+  // last-known snapshot from an unreachable machine — nothing here is live,
+  // so no heuristic below may run (a frozen preview would pin the old state)
+  if (agent.stale) return 'offline';
   if (!agent.agentRunning) return 'exited';
-  // semantic signal from the CLI's own hooks beats pane-text matching; the
-  // regex remains for codex and agents launched outside the dashboard.
-  // the whole 30-line preview: a tall dialog's cursor line can sit further
-  // up than the old 15-line window reached
-  const tail = stripAnsi(agent.preview).split('\n').slice(-30).join('\n');
-  if (agent.approvalPending || APPROVAL_RE.test(tail)) return 'needs-approval';
+  // An unmanaged pane running a non-agent program gets NO agent heuristics:
+  // an ssh window would otherwise flicker green "working" on every repaint,
+  // and an installer's "Press enter to continue" would read as an approval
+  // dialog and light the wall orange.
+  if (!agent.managed && !agent.provider && !AGENT_CMD_RE.test(agent.currentCommand)) {
+    return 'shell';
+  }
+  if (agent.approvalPending) return 'needs-approval';
+  // hook-monitored sessions are decided ABOVE, exclusively — no pane text.
+  // The chrome regex only covers sessions the hooks can't see (codex,
+  // outside-launched claude), over the whole 30-line preview since a tall
+  // dialog's headline can sit well above the bottom.
+  if (!agent.hookMonitored) {
+    const tail = stripAnsi(agent.preview).split('\n').slice(-30).join('\n');
+    if (DIALOG_CHROME_RE.test(tail)) return 'needs-approval';
+  }
 
   const lastWrite = agent.lastWriteMs ?? opts.lastWriteAt;
   if (agent.turnState === 'idle') return 'waiting';
@@ -69,6 +93,8 @@ export const STATUS_COLOR: Record<AgentStatus, string> = {
   'needs-approval': 'var(--color-alert)',
   waiting: 'var(--color-warn)',
   exited: 'var(--color-faint)',
+  shell: 'var(--color-faint)',
+  offline: 'var(--color-faint)',
 };
 
 export const STATUS_LABEL: Record<AgentStatus, string> = {
@@ -76,6 +102,8 @@ export const STATUS_LABEL: Record<AgentStatus, string> = {
   'needs-approval': 'needs approval',
   waiting: 'waiting for input',
   exited: 'agent exited',
+  shell: 'shell session',
+  offline: 'machine unreachable',
 };
 
 /** Readout glyphs for the console skin: `● WORKING`, `▲ APPROVAL`, … */
@@ -84,6 +112,8 @@ export const STATUS_GLYPH: Record<AgentStatus, string> = {
   'needs-approval': '▲',
   waiting: '◌',
   exited: '■',
+  shell: '·',
+  offline: '⌁',
 };
 
 /** Short uppercase-ready label for readout chips (label text set via CSS). */
@@ -92,4 +122,6 @@ export const STATUS_SHORT: Record<AgentStatus, string> = {
   'needs-approval': 'approval',
   waiting: 'waiting',
   exited: 'exited',
+  shell: 'shell',
+  offline: 'offline',
 };

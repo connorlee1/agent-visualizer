@@ -129,9 +129,31 @@ export function useServerEvents(): void {
       queryClient.invalidateQueries({ queryKey: ['hosts'] });
       queryClient.invalidateQueries({ queryKey: ['agents'] });
     });
-    es.addEventListener('session-updated', (ev) => {
+    // The lists (projects, per-project/recent sessions) are invalidated on a
+    // 3s throttle with a trailing sync: an actively-writing transcript fires
+    // session-updated several times a second — and remote machines relay
+    // theirs too — so per-event refetching stormed ~20 req/s per open tab.
+    let lastListSync = 0;
+    let pendingListSync: number | undefined;
+    const syncLists = () => {
+      lastListSync = Date.now();
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    };
+    const requestListSync = () => {
+      if (pendingListSync != null) return;
+      const wait = Math.max(0, 3000 - (Date.now() - lastListSync));
+      if (wait === 0) {
+        syncLists();
+      } else {
+        pendingListSync = window.setTimeout(() => {
+          pendingListSync = undefined;
+          syncLists();
+        }, wait);
+      }
+    };
+    es.addEventListener('session-updated', (ev) => {
+      requestListSync();
       // target the one transcript the event names — refetching every open
       // chat ~1.5×/s was a major browser + server churn source
       let payload: { provider?: string; sessionId?: string; host?: string } = {};
@@ -146,6 +168,9 @@ export function useServerEvents(): void {
         queryClient.invalidateQueries({ queryKey: ['transcript'] });
       }
     });
-    return () => es.close();
+    return () => {
+      window.clearTimeout(pendingListSync);
+      es.close();
+    };
   }, [queryClient]);
 }

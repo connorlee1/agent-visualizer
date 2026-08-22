@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CLAUDE_PROJECTS_DIR, SUMMARIZER_CWD } from '../config';
 import type { ContentBlock, Message, SessionSummary } from '../../shared/types';
-import { readHeadLines, readTailLines, safeIso, streamLines } from './parse';
+import { readHeadLines, readTailLines, safeIso, streamLinesFrom } from './parse';
 
 interface CacheEntry {
   mtimeMs: number;
@@ -64,6 +64,7 @@ async function indexClaudeSession(filePath: string): Promise<SessionSummary> {
   let lastActivityAt: string | undefined;
   let tailModel: string | undefined;
   let tailEffort: string | undefined;
+  let tailCwd: string | undefined;
   for (let i = tail.length - 1; i >= 0; i--) {
     const rec = tail[i];
     if (!lastActivityAt && rec.timestamp) lastActivityAt = safeIso(rec.timestamp, stat.mtime);
@@ -71,8 +72,13 @@ async function indexClaudeSession(filePath: string): Promise<SessionSummary> {
     if (!lastPrompt && rec.type === 'last-prompt' && typeof rec.lastPrompt === 'string') lastPrompt = rec.lastPrompt;
     if (!tailModel && rec.type === 'assistant' && rec.message?.model) tailModel = rec.message.model;
     if (!tailEffort && typeof rec.effort === 'string') tailEffort = rec.effort;
-    if (aiTitle && lastPrompt && lastActivityAt && tailModel && tailEffort) break;
+    if (!tailCwd && typeof rec.cwd === 'string' && rec.cwd) tailCwd = rec.cwd;
+    if (aiTitle && lastPrompt && lastActivityAt && tailModel && tailEffort && tailCwd) break;
   }
+  // background-agent transcripts open with cwd: null records — the real cwd
+  // only appears in later records, so check the tail before falling back to
+  // the storage dir (which breaks resume: claude finds no conversation there)
+  if (!projectPath && tailCwd) projectPath = tailCwd;
   // tail values are freshest — they reflect mid-session /model changes
   const model = tailModel ?? headModel;
   const effort = tailEffort ?? headEffort;
@@ -175,43 +181,75 @@ function claudeContent(rec: any): ContentBlock[] {
 }
 
 /**
+ * Accumulated parse state per transcript file. A busy agent's file changes
+ * every few seconds and used to trigger a FULL multi-MB reparse per chat
+ * poll — seconds of blocked event loop per open chat (the single biggest
+ * "everything is laggy" source found while profiling). Claude transcripts
+ * are append-only, so we keep the maps and only parse appended bytes; a
+ * shrinking file (rewrite — rare) resets cleanly.
+ */
+interface TranscriptState {
+  /** Byte offset just past the last complete line parsed. */
+  bytes: number;
+  parentOf: Map<string, string | null>;
+  messages: Map<string, Message>;
+  childMessagesOf: Map<string, number>; // parent uuid -> # of user/assistant children
+  lastMessageUuid?: string;
+}
+const transcriptStateCache = new Map<string, TranscriptState>();
+// Must exceed the number of chats a wall realistically keeps open at once —
+// an LRU smaller than the working set degrades to a full reparse per poll.
+const TRANSCRIPT_STATE_MAX = 24;
+
+/**
  * Parse the full transcript and walk the main branch: from the last transcript
  * record back to the root via parentUuid (over ALL records, since bookkeeping
  * lines participate in the chain), keeping only user/assistant messages.
  */
 export async function parseClaudeTranscript(filePath: string): Promise<Message[]> {
-  const parentOf = new Map<string, string | null>();
-  const messages = new Map<string, Message>();
-  const childMessagesOf = new Map<string, number>(); // parent uuid -> # of user/assistant children
-  let lastMessageUuid: string | undefined;
+  const stat = await fs.stat(filePath);
+  let st = transcriptStateCache.get(filePath);
+  if (!st || stat.size < st.bytes) {
+    st = { bytes: 0, parentOf: new Map(), messages: new Map(), childMessagesOf: new Map() };
+  }
+  const state = st;
 
-  await streamLines(filePath, (rec) => {
-    if (typeof rec?.uuid === 'string') parentOf.set(rec.uuid, rec.parentUuid ?? null);
-    if ((rec?.type !== 'user' && rec?.type !== 'assistant') || rec.isSidechain || rec.isMeta) return;
-    if (typeof rec.uuid !== 'string') return;
-    const content = claudeContent(rec);
-    if (!content.length) return;
-    const usage = rec.message?.usage;
-    messages.set(rec.uuid, {
-      id: rec.uuid,
-      parentId: rec.parentUuid ?? undefined,
-      role: rec.message?.role === 'assistant' ? 'assistant' : 'user',
-      timestamp: rec.timestamp,
-      content,
-      model: rec.message?.model,
-      usage: usage
-        ? {
-            inputTokens: usage.input_tokens,
-            outputTokens: usage.output_tokens,
-            cacheReadTokens: usage.cache_read_input_tokens,
-          }
-        : undefined,
+  if (stat.size > state.bytes) {
+    state.bytes += await streamLinesFrom(filePath, state.bytes, (rec) => {
+      if (typeof rec?.uuid === 'string') state.parentOf.set(rec.uuid, rec.parentUuid ?? null);
+      if ((rec?.type !== 'user' && rec?.type !== 'assistant') || rec.isSidechain || rec.isMeta) return;
+      if (typeof rec.uuid !== 'string') return;
+      const content = claudeContent(rec);
+      if (!content.length) return;
+      const usage = rec.message?.usage;
+      state.messages.set(rec.uuid, {
+        id: rec.uuid,
+        parentId: rec.parentUuid ?? undefined,
+        role: rec.message?.role === 'assistant' ? 'assistant' : 'user',
+        timestamp: rec.timestamp,
+        content,
+        model: rec.message?.model,
+        usage: usage
+          ? {
+              inputTokens: usage.input_tokens,
+              outputTokens: usage.output_tokens,
+              cacheReadTokens: usage.cache_read_input_tokens,
+            }
+          : undefined,
+      });
+      const parentKey = rec.parentUuid ?? 'root';
+      state.childMessagesOf.set(parentKey, (state.childMessagesOf.get(parentKey) ?? 0) + 1);
+      state.lastMessageUuid = rec.uuid;
     });
-    const parentKey = rec.parentUuid ?? 'root';
-    childMessagesOf.set(parentKey, (childMessagesOf.get(parentKey) ?? 0) + 1);
-    lastMessageUuid = rec.uuid;
-  });
+  }
+  // LRU: refresh position, cap retained files
+  transcriptStateCache.delete(filePath);
+  transcriptStateCache.set(filePath, state);
+  while (transcriptStateCache.size > TRANSCRIPT_STATE_MAX) {
+    transcriptStateCache.delete(transcriptStateCache.keys().next().value as string);
+  }
 
+  const { parentOf, messages, childMessagesOf, lastMessageUuid } = state;
   if (!lastMessageUuid) return [];
 
   const mainPath: Message[] = [];

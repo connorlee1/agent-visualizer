@@ -42,15 +42,28 @@ export function useResume() {
       return null;
     } catch (err) {
       if (err instanceof LaunchConflictError) {
+        if (err.backgroundAgent) {
+          // a background agent owns the conversation and claude refuses
+          // --resume on it — fork it into a fresh session instead
+          try {
+            const res = await launchAgent({ provider, resumeSessionId: sessionId, fork: true }, host);
+            navigate(`/agents/${encodeURIComponent(makeRef(host, res.tmuxName))}`);
+            return null;
+          } catch (forkErr) {
+            const msg = forkErr instanceof Error ? forkErr.message : String(forkErr);
+            setError(msg);
+            return msg;
+          }
+        }
         // already open in a running agent — jump there instead of duplicating
-        const owner = await liveOwner(host, sessionId, err.liveAgent);
+        const owner = await liveOwner(host, sessionId, err.liveAgent!);
         if (owner) {
           navigate(`/agents/${encodeURIComponent(makeRef(host, owner))}`);
           return null;
         }
         // every owner died since the 409 — the resume is legitimate now
         if (!isRetry) return resume(provider, sessionId, host, true);
-        navigate(`/agents/${encodeURIComponent(makeRef(host, err.liveAgent))}`);
+        navigate(`/agents/${encodeURIComponent(makeRef(host, err.liveAgent!))}`);
         return null;
       }
       const msg = err instanceof Error ? err.message : String(err);

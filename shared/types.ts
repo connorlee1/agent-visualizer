@@ -1,6 +1,14 @@
 export type Provider = 'claude' | 'codex';
 
-export type AgentStatus = 'working' | 'needs-approval' | 'waiting' | 'exited';
+export type AgentStatus =
+  | 'working'
+  | 'needs-approval'
+  | 'waiting'
+  | 'exited'
+  /** Unmanaged pane running a non-agent program (ssh, htop, an installer…) — no agent heuristics apply. */
+  | 'shell'
+  /** Last-known snapshot of an agent on a machine that's currently unreachable. */
+  | 'offline';
 
 /** The built-in machine id for the dashboard's own host. */
 export const LOCAL_HOST = 'local';
@@ -69,10 +77,20 @@ export interface TmuxAgent {
    * agents launched by the dashboard). Pane-text regex is the fallback.
    */
   approvalPending?: boolean;
+  /**
+   * This session's CLI pushes hook events — approvalPending is authoritative
+   * and the client must NOT pane-text-match dialogs for it.
+   */
+  hookMonitored?: boolean;
   /** ANSI snapshot of the visible pane (for previews + status heuristics). */
   preview: string;
   paneWidth: number;
   paneHeight: number;
+  /**
+   * Last-known snapshot served while the agent's machine is unreachable —
+   * the agent is (probably) still running there, but nothing here is live.
+   */
+  stale?: boolean;
 }
 
 /** A managed agent whose tmux session was killed or ended — kept so it can be resumed. */

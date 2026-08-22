@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import chokidar from 'chokidar';
 import { CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR } from '../config';
 import type { Message, Project, Provider, SessionSummary, TranscriptResponse } from '../../shared/types';
@@ -9,11 +10,34 @@ import { getAgentName } from '../agentnames';
 const byRecency = (a: SessionSummary, b: SessionSummary) =>
   new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
 
-export async function getAllSessions(): Promise<SessionSummary[]> {
+async function computeAllSessions(): Promise<SessionSummary[]> {
   const [claude, codex] = await Promise.all([listClaudeSessions(), listCodexSessions()]);
   return [...claude, ...codex]
     .map((s) => ({ ...s, agentName: getAgentName(s.id) }))
     .sort(byRecency);
+}
+
+// Serve-stale-while-refreshing: this aggregation is on several hot paths
+// (recents poll, projects, closed-list join, live-session linkage) and costs
+// up to ~1s while agents are actively writing. Callers get the last result
+// instantly; a refresh runs at most every 2s in the background. Staleness is
+// bounded by 2s + one compute — the same order as the UI poll cadence.
+let allSessionsCache: { at: number; value: SessionSummary[] } | null = null;
+let allSessionsInflight: Promise<SessionSummary[]> | null = null;
+
+export function getAllSessions(): Promise<SessionSummary[]> {
+  const fresh = allSessionsCache && Date.now() - allSessionsCache.at < 2000;
+  if (!fresh && !allSessionsInflight) {
+    allSessionsInflight = computeAllSessions()
+      .then((value) => {
+        allSessionsCache = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        allSessionsInflight = null;
+      });
+  }
+  return allSessionsCache ? Promise.resolve(allSessionsCache.value) : allSessionsInflight!;
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -56,7 +80,7 @@ export async function findSession(provider: Provider, id: string): Promise<Sessi
 }
 
 // Parsed transcripts are big (a 6.8MB JSONL becomes tens of MB of objects) — keep few.
-const TRANSCRIPT_LRU_MAX = 10;
+const TRANSCRIPT_LRU_MAX = 24; // must exceed open-chat working set or every poll reparses
 const transcriptCache = new Map<string, { mtimeMs: number; size: number; messages: Message[] }>();
 
 /**
@@ -153,9 +177,21 @@ export function invalidateSession(filePath: string): void {
   invalidateClaude(filePath);
   invalidateCodex(filePath);
   transcriptCache.delete(filePath);
+  // aggregate goes stale, not dropped — the next caller still answers
+  // instantly from it while the refresh folds this change in
+  if (allSessionsCache) allSessionsCache.at = 0;
 }
 
 export function startWatcher(onChange: (filePath: string) => void): void {
+  // The watched dirs must EXIST before chokidar starts: on a fresh machine
+  // (remote pod, new laptop) the server often boots before claude/codex have
+  // ever run, and a watch on a then-nonexistent directory never fires — the
+  // dashboard silently loses every live-update push until a restart.
+  for (const dir of [CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR]) {
+    try {
+      fsSync.mkdirSync(dir, { recursive: true });
+    } catch { /* unwritable home — polling still covers */ }
+  }
   const watcher = chokidar.watch([CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR], {
     ignoreInitial: true,
     depth: 4,

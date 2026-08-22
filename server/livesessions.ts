@@ -29,6 +29,24 @@ async function openFilesUnder(dir: string): Promise<Array<[number, string]>> {
   return out;
 }
 
+/**
+ * True when some other process holds the transcript file open — a background
+ * agent or a claude running outside the dashboard's tmux sessions. Claude
+ * refuses --resume on a conversation that's live elsewhere, so callers should
+ * offer --fork-session instead.
+ */
+export async function transcriptHeldOpen(filePath: string): Promise<boolean> {
+  // lsof exits 1 when nothing has the file open — an empty stdout, not an error
+  const stdout = await exec('lsof', ['-t', filePath]).then(
+    (r) => r.stdout,
+    (err: { stdout?: string }) => err?.stdout ?? '',
+  );
+  return stdout.split('\n').some((line) => {
+    const pid = Number(line.trim());
+    return pid > 0 && pid !== process.pid;
+  });
+}
+
 async function parentTable(): Promise<Map<number, number>> {
   try {
     const { stdout } = await exec('ps', ['-axo', 'pid=,ppid=']);

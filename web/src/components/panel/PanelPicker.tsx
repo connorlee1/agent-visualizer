@@ -54,13 +54,24 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
       pick({ kind: 'term', name: res.tmuxName });
     } catch (err) {
       if (err instanceof LaunchConflictError) {
+        if (err.backgroundAgent) {
+          // a background agent owns the conversation and claude refuses
+          // --resume on it — fork it into a fresh session instead
+          try {
+            const res = await launchAgent({ provider, resumeSessionId: id, fork: true });
+            pick({ kind: 'term', name: res.tmuxName });
+          } catch (forkErr) {
+            setError(forkErr instanceof Error ? forkErr.message : String(forkErr));
+          }
+          return;
+        }
         // already open in a running agent — show that agent's panel instead;
         // the server's pick may have just been killed, so prefer a live owner
         const owners = agents.filter(
           (a) => !isRemoteHost(a.host) && a.agentRunning && a.sessionId?.toLowerCase() === id.toLowerCase(),
         );
         const owner = owners.find((a) => a.name === err.liveAgent) ?? owners[0];
-        pick({ kind: 'term', name: owner ? refOf(owner) : err.liveAgent });
+        pick({ kind: 'term', name: owner ? refOf(owner) : err.liveAgent! });
         return;
       }
       setError(err instanceof Error ? err.message : String(err));

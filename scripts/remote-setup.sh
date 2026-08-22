@@ -20,7 +20,11 @@ SSH_ARGS=("$@")
 REMOTE_DIR=".agent-visualizer-app"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-run() { ssh "${SSH_ARGS[@]}" "$DEST" "$@"; }
+# Every remote command runs through a LOGIN shell: non-interactive ssh gets a
+# bare PATH, and — crucially — whoever starts the tmux server donates their
+# environment to every agent pane launched later. A login shell here means
+# nvm/asdf-installed node and the agent CLIs resolve both now and in agents.
+run() { ssh "${SSH_ARGS[@]}" "$DEST" "bash -lc $(printf '%q' "$*")"; }
 
 echo "==> checking remote prerequisites"
 run 'set -e

@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import compression from 'compression';
 import { WebSocketServer, WebSocket, type WebSocket as WS } from 'ws';
 import { SERVER_PORT } from './config';
 import { router } from './routes';
@@ -11,9 +12,17 @@ import { handleTerminalConnection } from './terminal';
 import { startWatcher } from './sessions/index';
 import { listAgents } from './tmux';
 import { trackAgents } from './closedagents';
-import { hostBaseUrl, initHosts } from './hosts';
+import { hostTermUrl, initHosts } from './hosts';
 
 const app = express();
+// ANSI previews compress ~10x; smaller responses matter doubly over remote
+// tunnels, where a fat poll burst delays everything sharing the pipe. SSE is
+// exempt — gzip buffering holds heartbeats back, which reads as a dead
+// stream to the aggregator's watchdog (originalUrl, NOT req.path: the filter
+// runs inside the /api router mount, where the path is rewritten to /events).
+app.use(compression({
+  filter: (req, res) => !req.originalUrl.startsWith('/api/events') && compression.filter(req, res),
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', router);
 
@@ -29,6 +38,11 @@ if (fs.existsSync(dist)) {
 }
 
 const server = http.createServer(app);
+// Interactive traffic (terminal keystrokes, forwarded API calls) is many tiny
+// packets; Nagle+delayed-ACK stacking on any hop adds 40-200ms of felt typing
+// latency over remote tunnels. Measured: bimodal 171/250ms keystroke echo to
+// a ~165ms-RTT machine before, flat ~RTT after.
+server.on('connection', (socket) => socket.setNoDelay(true));
 
 const clampInt = (v: string | null, min: number, max: number, dflt: number) => {
   const n = Number(v);
@@ -43,6 +57,8 @@ const clampInt = (v: string | null, min: number, max: number, dflt: number) => {
 function bridgeTerminal(client: WS, targetUrl: string): void {
   const remote = new WebSocket(targetUrl);
   remote.binaryType = 'nodebuffer';
+  // keystrokes must never sit in a Nagle buffer waiting for an ACK
+  remote.on('upgrade', (res) => res.socket?.setNoDelay(true));
   const queued: Array<{ data: Buffer; isBinary: boolean }> = [];
   const closeClient = (code: number, reason: string) => {
     if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
@@ -84,7 +100,9 @@ server.on('upgrade', (req, socket, head) => {
     });
     return;
   }
-  const baseUrl = hostBaseUrl(remote![1]);
+  // terminals ride the machine's dedicated interactive tunnel so keystrokes
+  // never queue behind poll/preview bursts on the api tunnel
+  const baseUrl = hostTermUrl(remote![1]);
   if (!baseUrl) {
     socket.destroy();
     return;

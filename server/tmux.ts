@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CLAUDE_HOOKS_FILE, SERVER_PORT, TMUX_BIN } from './config';
+import { CLAUDE_HOOKS_FILE, CODEX_NOTIFY_SCRIPT, SERVER_PORT, TMUX_BIN } from './config';
 import type { Provider, TmuxAgent } from '../shared/types';
 
 const exec = promisify(execFile);
@@ -147,7 +147,11 @@ export async function listAgents(opts: { previews?: boolean } = {}): Promise<Tmu
     // but only when it exists solely for that (single window). A multi-window
     // session is someone's real workspace that happens to contain the server;
     // hiding all of it would be far worse than showing the server pane.
-    if (name === selfSession && Number(windows) === 1) continue;
+    // A managed session is never that infrastructure: the server only "lives"
+    // in one by inheriting TMUX env from an agent that restarted it, and
+    // hiding a live agent marks it closed and blinds the duplicate-resume
+    // guard — the exact duplicates the guard exists to stop.
+    if (name === selfSession && Number(windows) === 1 && !MANAGED_RE.test(name)) continue;
     const pane = panes.get(name) ?? { cmd: '', width: 0, height: 0, pid: 0 };
     const managed = MANAGED_RE.test(name);
     agents.push({
@@ -202,6 +206,20 @@ export interface CreateAgentOptions {
 // truncates lines over 1024 bytes — inline JSON blew straight past that.
 // `exit 0` is load-bearing — PermissionRequest is a BLOCKING hook and a
 // nonzero exit while the server is down could deny the tool call.
+// codex `notify` invokes this with the event JSON as the LAST ARGV (not
+// stdin — verified live on 0.147); it fires only on agent-turn-complete.
+async function ensureCodexNotifyScript(): Promise<void> {
+  const script = `#!/bin/bash
+# written by agent-visualizer — forwards codex notify events to the dashboard
+curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary "\${!#}" http://127.0.0.1:${SERVER_PORT}/api/hooks/codex >/dev/null 2>&1 || true
+`;
+  const existing = await fs.readFile(CODEX_NOTIFY_SCRIPT, 'utf8').catch(() => null);
+  if (existing !== script) {
+    await fs.mkdir(path.dirname(CODEX_NOTIFY_SCRIPT), { recursive: true });
+    await fs.writeFile(CODEX_NOTIFY_SCRIPT, script, { mode: 0o755 });
+  }
+}
+
 async function ensureClaudeHooksFile(): Promise<void> {
   const post =
     `curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- ` +
@@ -246,12 +264,14 @@ function buildAgentCommand(opts: CreateAgentOptions): { command: string; session
     parts.push('--settings', shq(CLAUDE_HOOKS_FILE));
     if (initialPrompt && !resumeSessionId) parts.push(shq(initialPrompt));
   } else {
+    // notify gives an instant turn-complete push (its ONLY event — codex has
+    // no approval hook, so codex approvals stay on the chrome regex)
+    parts.push('codex', '-c', shq(`notify=["${CODEX_NOTIFY_SCRIPT}"]`));
     if (resumeSessionId) {
-      parts.push('codex', fork ? 'fork' : 'resume', resumeSessionId);
+      parts.push(fork ? 'fork' : 'resume', resumeSessionId);
       sessionId = fork ? undefined : resumeSessionId;
-    } else {
-      parts.push('codex');
-      if (initialPrompt) parts.push(shq(initialPrompt));
+    } else if (initialPrompt) {
+      parts.push(shq(initialPrompt));
     }
     if (model) parts.push('--model', model);
   }
@@ -264,6 +284,7 @@ export async function createAgent(opts: CreateAgentOptions): Promise<{ name: str
 
   const { command, sessionId } = buildAgentCommand(opts);
   if (opts.provider === 'claude') await ensureClaudeHooksFile();
+  else await ensureCodexNotifyScript();
   const name = `agent-${opts.provider}-${randomBytes(3).toString('hex')}`;
 
   await tmux(['new-session', '-d', '-s', name, '-c', opts.cwd, '-x', '220', '-y', '50']);
@@ -317,26 +338,33 @@ export async function getSessionOption(name: string, option: string): Promise<st
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Type a prompt into the agent and submit it. Multi-line goes via bracketed paste. */
+/** Type a prompt into the agent and submit it. Text goes via bracketed paste. */
 export async function sendTextToSession(name: string, text: string): Promise<void> {
   assertSessionName(name);
   const clean = text.replace(/\r\n/g, '\n').replace(/\n+$/, '');
   if (!clean) return;
-  if (clean.includes('\n')) {
-    // bracketed paste so the TUI treats newlines as content, not submissions
+  if (clean.startsWith('/') && !clean.includes('\n')) {
+    // slash commands must be TYPED — codex only recognizes them typed, and
+    // both CLIs want the command autocomplete, which a paste doesn't open
+    await tmux(['send-keys', '-t', name, '-l', clean]);
+  } else {
+    // Bracketed paste for everything else — including single lines. A raw
+    // char burst races the CLI's paste heuristic: when the process is slow
+    // to read its pty (busy machine), the text AND the Enter below arrive in
+    // one read() and the Enter is folded into the "paste" as a newline, so
+    // the message sits in the composer unsubmitted no matter how long we
+    // sleep. The paste END MARKER removes the ambiguity regardless of how
+    // the reads batch.
     await tmux(['set-buffer', '-b', 'agentdash', '--', clean]);
     await tmux(['paste-buffer', '-p', '-d', '-b', 'agentdash', '-t', name]);
-  } else {
-    await tmux(['send-keys', '-t', name, '-l', clean]);
   }
-  // TUIs (codex especially) treat a rapid char burst as a paste; an Enter
-  // inside that burst gets swallowed as a newline instead of submitting.
+  // give the TUI a beat to render the paste before the submit keypress
   await sleep(300);
   await tmux(['send-keys', '-t', name, 'Enter']);
 }
 
 const KEY_ALLOWLIST = new Set([
-  'Enter', 'Escape', 'Up', 'Down', 'Left', 'Right', 'Tab', 'Space',
+  'Enter', 'Escape', 'Up', 'Down', 'Left', 'Right', 'Tab', 'BTab', 'Space',
   '1', '2', '3', '4', '5', '6', '7', '8', '9', 'y', 'n',
 ]);
 

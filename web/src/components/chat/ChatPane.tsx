@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ListTree, SendHorizonal } from 'lucide-react';
 import type { Message } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
-import { useTranscript } from '../../queries';
+import { useHosts, useTranscript } from '../../queries';
 import { sendAgentInput } from '../../lib/api';
-import { hostOf, refOf } from '../../lib/agentRef';
+import { hostOf, isRemoteHost, refOf } from '../../lib/agentRef';
 import { parseApprovalDialog } from '../../lib/approval';
 import { altLabel } from '../../lib/keys';
 import { RECAP_IDLE_MS, stripAnsi } from '../../lib/status';
@@ -111,7 +111,36 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
         .slice(-8)
         .join('\n');
 
+  // Keyboard path to the approval dialog: while it's pending and the composer
+  // is EMPTY, dialog keys pressed anywhere in the pane go to the agent's
+  // terminal (matching the hint text) instead of typing into the textarea.
+  // A non-empty draft disables forwarding so digits/Enter in a typed message
+  // still behave normally. y/n stay typeable — they start words too often.
+  const forwardDialogKeys = (e: KeyboardEvent) => {
+    if (agent.status !== 'needs-approval' || draft) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const key =
+      /^[1-9]$/.test(e.key) ? e.key
+      : e.key === 'Escape' ? 'Escape'
+      : e.key === 'Enter' ? 'Enter'
+      : e.key === 'ArrowUp' ? 'Up'
+      : e.key === 'ArrowDown' ? 'Down'
+      : null;
+    if (!key) return;
+    e.preventDefault();
+    e.stopPropagation(); // keep bare digits away from the wall's 1-9 pane-jump
+    pressKey(key);
+  };
+
   const working = agent.status === 'working' || !!pending;
+
+  // A stalled tunnel or failing poll leaves the transcript frozen on stale
+  // data with no other tell — say so instead of reading as a rendering bug.
+  const host = hostOf(agent);
+  const { data: hostsInfo } = useHosts();
+  const hostDown =
+    isRemoteHost(host) && !!hostsInfo && !hostsInfo.some((h) => h.id === host && h.status === 'connected');
+  const degraded = hostDown || transcript.isError;
 
   // orientation strip after a real pause — the wall is where recaps get read
   const showRecap =
@@ -121,9 +150,32 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
     Date.now() - agent.lastWriteMs > RECAP_IDLE_MS;
   const [recapOpen, setRecapOpen] = useState(false);
 
+  // No conversation after a normal startup window means the CLI is sitting on
+  // a terminal-only screen chat can't show (first-run login, trust prompt, a
+  // menu) — seen constantly on fresh remote machines. Without this, the pane
+  // is an eternal spinner and nothing tells you the terminal is where to look.
+  const needsTerminal =
+    shown.length === 0 &&
+    !transcript.isLoading &&
+    !degraded &&
+    Date.now() - new Date(agent.createdAt).getTime() > 15_000;
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" onKeyDown={forwardDialogKeys}>
       <div className="min-h-0 flex-1">
+        {needsTerminal ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="max-w-[420px] text-center text-[12.5px] leading-relaxed text-mut">
+              <div className="pb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+                no conversation yet
+              </div>
+              The CLI is probably showing a screen only its terminal can display —
+              a first-run login, a trust prompt, or a menu. Open the terminal
+              (<span className="font-mono text-ink">t</span> / <span className="font-mono text-ink">{altLabel('T')}</span>)
+              to see and answer it.
+            </div>
+          </div>
+        ) : (
         <TranscriptView
           messages={shown}
           provider={linked?.provider ?? agent.provider ?? 'claude'}
@@ -139,16 +191,27 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             ) : null
           }
         />
+        )}
       </div>
 
       {/* min-h-0 (and no height cap) lets the approval banner take the whole
           panel in short panes — the transcript collapses before options do */}
       <div className="flex min-h-0 flex-col border-t border-edge bg-surface px-3 pb-3 pt-2.5">
         <div className="center-col mx-auto flex w-full min-h-0 max-w-[880px] flex-col">
+          {degraded && (
+            <div className="mb-1.5 flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface2 px-2 py-1 text-[11px] text-mut">
+              <span className="text-alert">●</span>
+              <span className="min-w-0 truncate">
+                {hostDown ? `connection to ${host} lost — reconnecting` : 'transcript updates failing — retrying'}
+                {messages.length ? '; showing last fetched messages' : ''}
+              </span>
+            </div>
+          )}
           {agent.status === 'needs-approval' && (
             <div className="mb-2.5 flex min-h-0 flex-col overflow-y-auto rounded-lg border border-alert/50 bg-alert/10 p-2.5">
               <div className="flex shrink-0 items-center gap-2">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-alert">▲ Approval required</span>
+                {/* "input", not "approval" — selector dialogs (Rewind, pickers) land here too */}
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-alert">▲ Input required</span>
                 <span className="ml-auto min-w-0 truncate text-[11px] text-faint">keys are pressed in the agent’s terminal</span>
                 {dialog?.multiSelect && (
                   <button

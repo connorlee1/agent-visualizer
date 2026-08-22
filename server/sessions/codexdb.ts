@@ -98,20 +98,62 @@ function itemToMessage(raw: string, createdAtMs: number): Message | null {
   }
 }
 
+/**
+ * Incremental per-thread transcript state. A long thread is ~20k rows and
+ * costs seconds to pull through the sqlite3 CLI — and an ACTIVE thread's
+ * fingerprint changes every few seconds, which used to mean a full requery
+ * per chat poll (measured 9s for one busy thread). Rows are append-only, so
+ * after the first full load we only fetch rows newer than the last seen.
+ */
+interface ThreadTranscript {
+  lastMs: number;
+  lastRowid: number;
+  messages: Message[];
+}
+const threadTranscripts = new Map<string, ThreadTranscript>();
+const THREAD_TRANSCRIPTS_MAX = 12;
+
+function ingestRows(
+  state: ThreadTranscript,
+  rows: Array<{ rowid: number; item_json: string; created_at_ms: number }>,
+): void {
+  for (const row of rows) {
+    const m = itemToMessage(row.item_json, row.created_at_ms);
+    if (m) state.messages.push(m);
+    state.lastMs = row.created_at_ms;
+    state.lastRowid = row.rowid;
+  }
+}
+
 /** Full transcript for a thread from the codex db, newest MAX_ITEMS. */
 export async function codexDbTranscript(threadId: string): Promise<Message[] | null> {
   if (!UUID_RE.test(threadId)) return null;
-  const rows = await query<{ item_json: string; created_at_ms: number }>(
-    `SELECT item_json, created_at_ms FROM thread_items WHERE thread_id='${threadId.toLowerCase()}' ORDER BY created_at_ms DESC, rowid DESC LIMIT ${MAX_ITEMS}`,
-  );
-  if (!rows || rows.length === 0) return null;
-  rows.reverse();
-  const out: Message[] = [];
-  for (const row of rows) {
-    const m = itemToMessage(row.item_json, row.created_at_ms);
-    if (m) out.push(m);
+  const id = threadId.toLowerCase();
+  let state = threadTranscripts.get(id);
+  if (!state) {
+    const rows = await query<{ rowid: number; item_json: string; created_at_ms: number }>(
+      `SELECT rowid, item_json, created_at_ms FROM thread_items WHERE thread_id='${id}' ORDER BY created_at_ms DESC, rowid DESC LIMIT ${MAX_ITEMS}`,
+    );
+    if (!rows || rows.length === 0) return null;
+    rows.reverse();
+    state = { lastMs: 0, lastRowid: 0, messages: [] };
+    ingestRows(state, rows);
+  } else {
+    const rows = await query<{ rowid: number; item_json: string; created_at_ms: number }>(
+      `SELECT rowid, item_json, created_at_ms FROM thread_items WHERE thread_id='${id}' AND (created_at_ms > ${state.lastMs} OR (created_at_ms = ${state.lastMs} AND rowid > ${state.lastRowid})) ORDER BY created_at_ms ASC, rowid ASC LIMIT ${MAX_ITEMS}`,
+    );
+    // sqlite hiccup mid-append: last known state beats a null that would
+    // bounce every caller to the (stale) rollout fallback
+    if (rows) ingestRows(state, rows);
   }
-  return out;
+  threadTranscripts.delete(id);
+  threadTranscripts.set(id, state);
+  while (threadTranscripts.size > THREAD_TRANSCRIPTS_MAX) {
+    threadTranscripts.delete(threadTranscripts.keys().next().value as string);
+  }
+  // callers cache the returned array by fingerprint — hand out a copy so the
+  // next incremental append can't mutate what they already stored
+  return state.messages.slice();
 }
 
 export interface CodexDbState {

@@ -14,7 +14,13 @@ import { isRemoteHost, parseRef } from './agentRef';
 
 /** Resume refused: the conversation is already open in a running agent. */
 export class LaunchConflictError extends Error {
-  constructor(message: string, readonly liveAgent: string) {
+  constructor(
+    message: string,
+    /** tmux agent that owns it — absent when a background agent does. */
+    readonly liveAgent: string | undefined,
+    /** True when a non-tmux process owns the transcript — retry with fork. */
+    readonly backgroundAgent: boolean,
+  ) {
     super(message);
   }
 }
@@ -27,12 +33,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     let liveAgent: string | undefined;
+    let backgroundAgent = false;
     try {
       const body = await res.json();
       if (body?.error) detail = body.error;
       if (typeof body?.liveAgent === 'string') liveAgent = body.liveAgent;
+      if (body?.backgroundAgent === true) backgroundAgent = true;
     } catch { /* non-JSON error body */ }
-    if (res.status === 409 && liveAgent) throw new LaunchConflictError(detail, liveAgent);
+    if (res.status === 409 && (liveAgent || backgroundAgent)) {
+      throw new LaunchConflictError(detail, liveAgent, backgroundAgent);
+    }
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
@@ -126,6 +136,16 @@ export const sendAgentInput = (ref: string, input: { text?: string; key?: string
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  });
+};
+
+/** Switch permission/plan mode by cycling shift+tab in the agent's pane. */
+export const setAgentMode = (ref: string, mode: string) => {
+  const { host, name } = parseRef(ref);
+  return request<{ mode: string }>(`${apiBase(host)}/tmux/${encodeURIComponent(name)}/mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
   });
 };
 

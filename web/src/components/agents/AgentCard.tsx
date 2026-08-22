@@ -37,7 +37,7 @@ export function AgentCard({ agent }: { agent: AgentWithStatus }) {
       }}
       className={`w-full cursor-pointer rounded-[5px] border bg-surface text-left transition-colors hover:bg-surface2 ${
         needsApproval ? 'pulse-alert-border border-alert' : 'border-edge'
-      }`}
+      } ${agent.status === 'offline' ? 'opacity-60' : ''}`}
       style={{
         // per-directory tint on the sides/bottom; provider color keeps the top
         borderColor: tint && !needsApproval ? dimmed(tint) : undefined,

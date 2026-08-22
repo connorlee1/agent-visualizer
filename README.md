@@ -56,6 +56,10 @@ Notes:
 - The remote machine needs the same requirements as local (node, tmux ≥ 3.1, the agent CLIs; `lsof`/`sqlite3` strongly recommended) — `remote-setup.sh` checks and tells you what's missing.
 - Conversation history lives on each machine. If a pod is destroyed, its transcripts go with it (mount a network volume over `~/.claude` / `~/.codex` if you care).
 - Registry lives in `~/.agent-visualizer/hosts.json`; nothing is ever exposed publicly — remote servers bind localhost and are only reached through your ssh tunnel.
+- `npm run test:multihost` runs the integration suite for this whole layer (~60s): it boots a second server instance as a fake remote and drives connect, merge, forwarding, the terminal bridge, outage→ghost→recovery, event relay, and the loop guards. Run it after touching anything in `server/hosts.ts`, the `/api/h` forwarder, or the ws bridge.
+- When a machine drops (tunnel blip, pod restart), its agents stay on the wall as greyed **offline** cards — last-known state, not live — and recover automatically on reconnect. Cards only disappear when you remove the machine.
+- ssh'ing into a machine and `tmux attach`-ing an agent directly works alongside the dashboard, but the pane is sized by whoever typed last (`window-size latest`) — expect the layout to snap between your terminal's size and the dashboard's. Watching via the dashboard avoids the tug-of-war.
+- tmux panes running non-agent programs (your ssh window, htop, an installer) show as neutral **shell** cards — they never count as "working" and never trigger approval alerts.
 
 ## Drive it with the keyboard
 

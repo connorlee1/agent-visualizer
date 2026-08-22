@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
-import { HOSTS_FILE } from './config';
+import { HOSTS_FILE, INSTANCE_ID } from './config';
 import type { AddHostRequest, HostInfo, HostStatus } from '../shared/types';
 
 /**
@@ -31,11 +31,23 @@ interface HostRuntime {
   status: HostStatus;
   lastError?: string;
   baseUrl?: string;
+  /**
+   * Separate tunnel for interactive terminal traffic. Keystrokes sharing one
+   * ssh TCP stream with the 2s poll queue behind its preview bursts (measured:
+   * ~170ms flat echo on a quiet tunnel vs 250-310ms median on the shared one).
+   */
+  termUrl?: string;
   child?: ChildProcess;
+  termChild?: ChildProcess;
   sseAbort?: AbortController;
   retries: number;
   removed: boolean;
+  /** Misconfiguration that retrying can never fix (e.g. host is this server itself). */
+  permanent?: boolean;
 }
+
+/** An error reconnecting will never fix — the host loop stops instead of retrying. */
+class PermanentHostError extends Error {}
 
 /**
  * Emits:
@@ -128,32 +140,18 @@ function freePort(): Promise<number> {
 
 function killChild(rt: HostRuntime): void {
   try { rt.child?.kill(); } catch { /* already gone */ }
+  try { rt.termChild?.kill(); } catch { /* already gone */ }
   rt.child = undefined;
+  rt.termChild = undefined;
 }
 
-async function healthOk(baseUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
+interface Tunnel {
+  child: ChildProcess;
+  hasExited: () => boolean;
+  exitInfo: Promise<string>;
 }
 
-/** Bring the tunnel up (or verify a direct url) and wait until the remote answers. */
-async function establish(rt: HostRuntime): Promise<void> {
-  const { entry } = rt;
-  if (entry.url) {
-    rt.baseUrl = entry.url.replace(/\/$/, '');
-    for (let i = 0; i < 5 && !rt.removed; i++) {
-      if (await healthOk(rt.baseUrl)) return;
-      await sleep(1000);
-    }
-    throw new Error('remote server not answering');
-  }
-
-  const port = await freePort();
-  rt.baseUrl = `http://127.0.0.1:${port}`;
+function spawnTunnel(entry: HostEntry, localPort: number): Tunnel {
   const args = [
     '-N',
     // BatchMode: fail fast instead of hanging on a password prompt this
@@ -161,14 +159,15 @@ async function establish(rt: HostRuntime): Promise<void> {
     '-o', 'BatchMode=yes',
     '-o', 'StrictHostKeyChecking=accept-new',
     '-o', 'ExitOnForwardFailure=yes',
-    '-o', 'ServerAliveInterval=10',
-    '-o', 'ServerAliveCountMax=3',
+    // ~10s dead-peer detection: while ssh still thinks the tunnel is up,
+    // requests are forwarded into it and hang — keep that window short
+    '-o', 'ServerAliveInterval=5',
+    '-o', 'ServerAliveCountMax=2',
     '-o', 'ConnectTimeout=10',
-    '-L', `${port}:127.0.0.1:${entry.remotePort ?? DEFAULT_REMOTE_PORT}`,
+    '-L', `${localPort}:127.0.0.1:${entry.remotePort ?? DEFAULT_REMOTE_PORT}`,
     ...userSshArgs(entry.ssh!),
   ];
   const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-  rt.child = child;
   let stderr = '';
   child.stderr?.on('data', (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-2000);
@@ -184,15 +183,121 @@ async function establish(rt: HostRuntime): Promise<void> {
       resolve(err.message);
     });
   });
+  return { child, hasExited: () => exited, exitInfo };
+}
+
+async function healthOk(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => null) as { instanceId?: string } | null;
+    // answering with OUR instance id means the "remote" is this very server —
+    // merging it into itself would double every agent and stall each poll
+    if (body?.instanceId === INSTANCE_ID) {
+      throw new PermanentHostError('this address points back at this dashboard itself');
+    }
+    return true;
+  } catch (err) {
+    if (err instanceof PermanentHostError) throw err;
+    return false;
+  }
+}
+
+/** Bring the tunnels up (or verify a direct url) and wait until the remote answers. */
+async function establish(rt: HostRuntime): Promise<void> {
+  const { entry } = rt;
+  if (entry.url) {
+    rt.baseUrl = entry.url.replace(/\/$/, '');
+    rt.termUrl = rt.baseUrl;
+    for (let i = 0; i < 5 && !rt.removed; i++) {
+      if (await healthOk(rt.baseUrl)) return;
+      await sleep(1000);
+    }
+    throw new Error('remote server not answering');
+  }
+
+  const portA = await freePort();
+  const portB = await freePort();
+  let a = { port: portA, tunnel: spawnTunnel(entry, portA) };
+  let b = { port: portB, tunnel: spawnTunnel(entry, portB) };
+  rt.child = a.tunnel.child;
+  rt.termChild = b.tunnel.child;
+  rt.baseUrl = `http://127.0.0.1:${a.port}`;
+  rt.termUrl = `http://127.0.0.1:${b.port}`;
 
   // The tunnel opening isn't enough — wait for the remote *server* to answer.
+  let up = false;
   for (let i = 0; i < 30 && !rt.removed; i++) {
-    if (exited) throw new Error(await exitInfo);
-    if (await healthOk(rt.baseUrl)) return;
+    if (a.tunnel.hasExited()) throw new Error(await a.tunnel.exitInfo);
+    if (b.tunnel.hasExited()) throw new Error(await b.tunnel.exitInfo);
+    if (await healthOk(rt.baseUrl)) {
+      up = true;
+      break;
+    }
     await sleep(1000);
   }
-  killChild(rt);
-  throw new Error(exited ? await exitInfo : 'tunnel up but remote server not answering (is it running on the machine?)');
+  if (!up) {
+    killChild(rt);
+    throw new Error(a.tunnel.hasExited() ? await a.tunnel.exitInfo : 'tunnel up but remote server not answering (is it running on the machine?)');
+  }
+
+  // Each ssh connection is its own TCP flow, and flows to the same machine
+  // can land on paths differing by 100ms+ (measured 168 vs 308ms to the same
+  // OCI host — ECMP flow-hash lottery). Probe both tunnels, re-roll an
+  // egregiously slow flow once, and give the FASTEST flow to the terminal —
+  // keystroke echo is where latency is actually felt; polling takes the rest.
+  let aMs = await probeMs(a.port);
+  let bMs = await probeMs(b.port);
+  const slowest = () => (aMs > bMs ? a : b);
+  if (Math.max(aMs, bMs) > Math.min(aMs, bMs) * 1.5 + 30 && !rt.removed) {
+    const loser = slowest();
+    const rerollPort = await freePort();
+    const reroll = { port: rerollPort, tunnel: spawnTunnel(entry, rerollPort) };
+    const deadline = Date.now() + 15_000;
+    let rerollMs = Infinity;
+    while (Date.now() < deadline && !reroll.tunnel.hasExited()) {
+      if (await healthOk(`http://127.0.0.1:${reroll.port}`)) {
+        rerollMs = await probeMs(reroll.port);
+        break;
+      }
+      await sleep(500);
+    }
+    if (rerollMs < (loser === a ? aMs : bMs)) {
+      try { loser.tunnel.child.kill(); } catch { /* already gone */ }
+      if (loser === a) { a = reroll; aMs = rerollMs; } else { b = reroll; bMs = rerollMs; }
+    } else {
+      try { reroll.tunnel.child.kill(); } catch { /* already gone */ }
+    }
+  }
+  const [term, api] = aMs <= bMs ? [a, b] : [b, a];
+  rt.child = api.tunnel.child;
+  rt.termChild = term.tunnel.child;
+  rt.baseUrl = `http://127.0.0.1:${api.port}`;
+  rt.termUrl = `http://127.0.0.1:${term.port}`;
+  console.log(`[${entry.id}] tunnels up · term ${Math.min(aMs, bMs).toFixed(0)}ms · api ${Math.max(aMs, bMs).toFixed(0)}ms`);
+  // if the interactive tunnel dies later while the api one lives, tear the
+  // host down so the loop rebuilds both — a silently dead terminal path
+  // would look like every remote terminal "not connecting"
+  term.tunnel.child.on('exit', () => {
+    if (!rt.removed && rt.termChild === term.tunnel.child) rt.sseAbort?.abort();
+  });
+}
+
+/** Median round-trip of a few health pings through a tunnel port. */
+async function probeMs(port: number, n = 4): Promise<number> {
+  const times: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = Date.now();
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(4000) });
+      times.push(Date.now() - t);
+    } catch {
+      times.push(4000);
+    }
+    await sleep(60);
+  }
+  times.sort((x, y) => x - y);
+  return times[Math.floor(times.length / 2)];
 }
 
 /**
@@ -203,26 +308,41 @@ async function establish(rt: HostRuntime): Promise<void> {
 async function watchEvents(rt: HostRuntime): Promise<void> {
   const abort = new AbortController();
   rt.sseAbort = abort;
-  const res = await fetch(`${rt.baseUrl}/api/events`, { signal: abort.signal });
-  if (!res.ok || !res.body) throw new Error(`events stream failed (${res.status})`);
-  let event = '';
-  let buffer = '';
-  const decoder = new TextDecoder();
-  const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, nl).trimEnd();
-      buffer = buffer.slice(nl + 1);
-      if (line.startsWith('event: ')) event = line.slice(7);
-      else if (line.startsWith('data: ') && event) {
-        hostEvents.emit('remote-event', rt.entry.id, event, line.slice(6));
-        event = '';
+  // Watchdog: the remote heartbeats every 25s, but a half-open socket (NAT
+  // drop on url-mode hosts, ssh keepalive not yet fired) delivers nothing
+  // and never errors — treat 40s of silence as dead so the loop reconnects.
+  let lastData = Date.now();
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastData > 40_000) abort.abort();
+  }, 5_000);
+  try {
+    const res = await fetch(`${rt.baseUrl}/api/events`, { signal: abort.signal });
+    if (!res.ok || !res.body) throw new Error(`events stream failed (${res.status})`);
+    let event = '';
+    let buffer = '';
+    const decoder = new TextDecoder();
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      lastData = Date.now();
+      buffer += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trimEnd();
+        buffer = buffer.slice(nl + 1);
+        if (line.startsWith('event: ')) event = line.slice(7);
+        else if (line.startsWith('data: ') && event) {
+          hostEvents.emit('remote-event', rt.entry.id, event, line.slice(6));
+          event = '';
+        }
       }
     }
+  } catch (err) {
+    if (abort.signal.aborted && !rt.removed) throw new Error('events stream stalled (no heartbeat)');
+    throw err;
+  } finally {
+    clearInterval(watchdog);
   }
   throw new Error('events stream ended');
 }
@@ -245,12 +365,13 @@ async function runHost(rt: HostRuntime): Promise<void> {
       setStatus(rt, 'connected');
       await watchEvents(rt);
     } catch (err) {
+      if (err instanceof PermanentHostError) rt.permanent = true;
       if (!rt.removed) setStatus(rt, 'down', err instanceof Error ? err.message : String(err));
     }
     killChild(rt);
     rt.sseAbort?.abort();
     rt.sseAbort = undefined;
-    if (rt.removed) break;
+    if (rt.removed || rt.permanent) break;
     await sleep(Math.min(1000 * 2 ** rt.retries++, 30_000));
   }
   killChild(rt);
@@ -269,12 +390,16 @@ export function initHosts(): void {
   for (const entry of loadEntries()) {
     if (!runtimes.has(entry.id)) startHost(entry);
   }
-  // a server restart must never leave zombie ssh tunnels behind
+  // A server restart must never leave zombie ssh tunnels behind. This hangs
+  // on 'exit' (not the signals): another module's signal handler calling
+  // process.exit() first would skip later signal handlers — and did, leaking
+  // a tunnel pair per restart — but 'exit' always runs, and child.kill() is
+  // synchronous so it's legal here.
+  process.on('exit', () => {
+    for (const rt of runtimes.values()) killChild(rt);
+  });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      for (const rt of runtimes.values()) killChild(rt);
-      process.exit(0);
-    });
+    process.on(signal, () => process.exit(0));
   }
 }
 
@@ -328,4 +453,10 @@ export function connectedHosts(): Array<{ id: string; baseUrl: string }> {
 export function hostBaseUrl(id: string): string | undefined {
   const rt = runtimes.get(id);
   return rt?.status === 'connected' ? rt.baseUrl : undefined;
+}
+
+/** Base URL of the machine's dedicated interactive tunnel (terminal bridge). */
+export function hostTermUrl(id: string): string | undefined {
+  const rt = runtimes.get(id);
+  return rt?.status === 'connected' ? (rt.termUrl ?? rt.baseUrl) : undefined;
 }

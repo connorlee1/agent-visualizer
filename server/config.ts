@@ -13,9 +13,19 @@ export const CLOSED_AGENTS_FILE = path.join(HOME, '.agent-visualizer', 'closed-a
 export const AGENT_NAMES_FILE = path.join(HOME, '.agent-visualizer', 'agent-names.json');
 export const LIVE_AGENTS_FILE = path.join(HOME, '.agent-visualizer', 'live-agents.json');
 export const CLAUDE_HOOKS_FILE = path.join(HOME, '.agent-visualizer', 'claude-hooks.json');
+export const CODEX_NOTIFY_SCRIPT = path.join(HOME, '.agent-visualizer', 'codex-notify.sh');
+/** Persisted CLI hook-signal state (monitored sessions + open dialogs). */
+export const HOOK_SIGNALS_FILE = path.join(HOME, '.agent-visualizer', 'hook-signals.json');
 /** cwd for headless `claude -p` summarizer calls — its transcripts are filtered out of session listings. */
 export const SUMMARIZER_CWD = path.join(HOME, '.agent-visualizer', 'summarizer');
 export const IDLE_SUMMARIES_FILE = path.join(HOME, '.agent-visualizer', 'idle-summaries.json');
 /** Remote machines registry (env override keeps tests off the real file). */
 export const HOSTS_FILE = process.env.HOSTS_FILE || path.join(HOME, '.agent-visualizer', 'hosts.json');
+
+/**
+ * Per-boot identity, reported by /api/health. Lets the tunnel manager notice
+ * that a "remote machine" is actually this very server (a self-referential
+ * host would otherwise deadlock the merged listing against itself).
+ */
+export const INSTANCE_ID = crypto.randomUUID();
 

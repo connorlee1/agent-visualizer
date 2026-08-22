@@ -32,8 +32,16 @@ export function XtermPane({ name }: { name: string }) {
     term.open(host);
     fit.fit();
     // a sleeping pane must not steal focus on (re)mount — the pane's
-    // focus-within brightness would override its dim
-    if (!isDoneFlashMuted(name)) term.focus();
+    // focus-within brightness would override its dim. Neither must a pane
+    // mounting while the user is typing somewhere (a split opening, a pane
+    // flipping views, an agent flickering back into the listing): yanking
+    // the caret out of a composer mid-sentence is worse than an unfocused
+    // terminal.
+    const active = document.activeElement as HTMLElement | null;
+    const userTyping =
+      !!active &&
+      (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable);
+    if (!userTyping && !isDoneFlashMuted(name)) term.focus();
 
     const encoder = new TextEncoder();
     let ws: WebSocket | null = null;

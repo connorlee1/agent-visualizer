@@ -1,20 +1,23 @@
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { Router } from 'express';
+import { INSTANCE_ID } from './config';
 import type { AddHostRequest, ClosedAgent, LaunchAgentRequest, TmuxAgent } from '../shared/types';
 import { LOCAL_HOST } from '../shared/types';
-import { sseHandler, broadcast } from './events';
+import { sseHandler, broadcast, hasClients } from './events';
 import { addHost, connectedHosts, getHostsInfo, hostBaseUrl, hostEvents, removeHost } from './hosts';
 import { capturePane, createAgent, getSessionOption, isServerRunning, killSession, listAgents, renameAgent, sendKeyToSession, sendTextToSession, TmuxError } from './tmux';
 import { findSession, getAllSessions, getProjects, getSessionsForProject, getTranscript, livePathForSession } from './sessions/index';
-import { resolveLiveSessions } from './livesessions';
+import { getCodexSessionFiles } from './sessions/codex';
+import { resolveLiveSessions, transcriptHeldOpen } from './livesessions';
 import { getTurnState } from './sessions/turnstate';
 import { getIdleSummary } from './sessions/idlesummary';
 import { requestIdleNote } from './sessions/summarizer';
 import { dismissClosed, getClosedAgents, getTrackedAgent, noteKilled, noteResumed, trackAgents } from './closedagents';
 import { driveCodexModelPicker } from './codexpicker';
+import { cycleAgentMode } from './modecycle';
 import { forgetAgentName, getAgentName, rememberAgentName } from './agentnames';
-import { approvalPending, noteClaudeHookEvent } from './hooksignals';
+import { approvalPending, hookMonitored, noteClaudeHookEvent, noteCodexEvent } from './hooksignals';
 
 export const router = Router();
 
@@ -26,7 +29,7 @@ const asyncRoute = (fn: (req: any, res: any) => Promise<void>) => (req: any, res
 };
 
 router.get('/health', asyncRoute(async (_req, res) => {
-  res.json({ ok: true, tmuxRunning: await isServerRunning(), version: '0.1.0' });
+  res.json({ ok: true, tmuxRunning: await isServerRunning(), version: '0.1.0', instanceId: INSTANCE_ID });
 }));
 
 // ---- remote machines -----------------------------------------------------
@@ -61,6 +64,7 @@ router.delete('/hosts/:id', (req, res) => {
     res.status(404).json({ error: 'no such machine' });
     return;
   }
+  remoteListingCache.delete(req.params.id);
   invalidateTmuxListing();
   broadcast('hosts-changed');
   broadcast('tmux-changed');
@@ -90,9 +94,19 @@ router.use('/h', (req, res) => {
     method: req.method,
     headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
     body: hasBody ? JSON.stringify(req.body) : undefined,
-    // generous: codex model-picker drives can take a while
-    signal: AbortSignal.timeout(60_000),
+    // reads fail fast — a half-dead tunnel otherwise freezes every polling
+    // chat for the full minute; actions stay generous (codex model-picker
+    // drives can take a while)
+    signal: AbortSignal.timeout(req.method === 'GET' || req.method === 'HEAD' ? 10_000 : 60_000),
   }).then(async (r) => {
+    // a successful forwarded kill must leave the snapshot immediately —
+    // see dropFromSnapshot (stale-serve would flash the dead agent back)
+    const killed = req.method === 'DELETE' && r.ok && /^\/tmux\/([^/?]+)$/.exec(rest);
+    if (killed) {
+      dropFromSnapshot(hostId, decodeURIComponent(killed[1]));
+      invalidateTmuxListing();
+      broadcast('tmux-changed');
+    }
     if (r.status === 204) {
       res.status(204).end();
       return;
@@ -218,9 +232,12 @@ router.get('/file/raw', asyncRoute(async (req, res) => {
 
 /** Conversations currently owned by a running agent: "provider:sessionId" -> agent. */
 async function liveConversations(): Promise<Map<string, TmuxAgent>> {
-  const agents = await listAgents();
-  // ground-truth linkage beats the stamped id, which goes stale after /clear
-  await resolveLiveSessions(agents);
+  // the warm snapshot already carries live-resolved session ids — reuse it
+  // rather than paying a second listing fan-out per closed-list/launch check
+  const agents =
+    snapshot && Date.now() - snapshot.at < 5000
+      ? snapshot.agents.filter((a) => a.host === LOCAL_HOST)
+      : await getLocalListing();
   const map = new Map<string, TmuxAgent>();
   for (const a of agents) {
     if (a.agentRunning && a.provider && a.sessionId) {
@@ -261,6 +278,21 @@ router.post('/agents', asyncRoute(async (req, res) => {
         res.status(409).json({
           error: `that conversation is already live in ${owner.title || owner.name}`,
           liveAgent: owner.name,
+        });
+        return;
+      }
+      // a background agent (no tmux pane) can also own the conversation —
+      // claude refuses --resume on those, and codex would silently put a
+      // second writer on it — so tell the client to fork instead. A codex
+      // conversation spans several rollout files and the live process may
+      // hold any of them open, so check the whole group.
+      const files = body.provider === 'codex'
+        ? [...new Set([session.filePath, ...getCodexSessionFiles(session.id)])]
+        : [session.filePath];
+      if ((await Promise.all(files.map(transcriptHeldOpen))).some(Boolean)) {
+        res.status(409).json({
+          error: 'that conversation is live in a background agent',
+          backgroundAgent: true,
         });
         return;
       }
@@ -306,21 +338,113 @@ router.post('/agents', asyncRoute(async (req, res) => {
 }));
 
 // GET /tmux is the hot poll (every open view hits it every 2s) and its body
-// fans out ~20 subprocesses. Coalesce: concurrent requests share one
-// computation, and results stay fresh for a second — N tabs cost one
-// computation per second, not N per 2s.
-let tmuxListingCache: { at: number; agents: TmuxAgent[] } | null = null;
-const invalidateTmuxListing = () => { tmuxListingCache = null; };
-let tmuxListingInFlight: Promise<TmuxAgent[]> | null = null;
+// fans out ~20 subprocesses plus remote fetches — measured 600-1600ms per
+// recompute on a busy machine. Clients must NEVER wait on that: a background
+// loop keeps a snapshot warm while any tab is open (SSE client connected),
+// and the route always answers from the snapshot instantly. Staleness is
+// bounded by the refresh cadence — the same 2s the old blocking cache had,
+// minus the wait. The local listing keeps its own coalescing layer because
+// aggregators fetch it directly (?local=1).
+let snapshot: { at: number; agents: TmuxAgent[] } | null = null;
+let refreshing: Promise<void> | null = null;
+let refreshQueued = false;
+let localListingCache: { at: number; agents: TmuxAgent[] } | null = null;
+let localListingInFlight: Promise<TmuxAgent[]> | null = null;
+
+function refreshSnapshot(): Promise<void> {
+  if (refreshing) {
+    // a change arrived mid-compute — run one more pass after this one so the
+    // snapshot can't miss it; N invalidations coalesce into a single rerun
+    refreshQueued = true;
+    return refreshing;
+  }
+  refreshing = computeTmuxListing()
+    .then((agents) => {
+      snapshot = { at: Date.now(), agents };
+    })
+    .catch((err) => console.error('listing refresh failed:', err))
+    .finally(() => {
+      refreshing = null;
+      if (refreshQueued) {
+        refreshQueued = false;
+        void refreshSnapshot();
+      }
+    });
+  return refreshing;
+}
+
+// keep the snapshot warm while anyone is watching; idle machines pay nothing
+setInterval(() => {
+  if (hasClients() && Date.now() - (snapshot?.at ?? 0) >= 2000) void refreshSnapshot();
+}, 500);
+
+const invalidateTmuxListing = () => {
+  localListingCache = null;
+  if (snapshot) snapshot.at = 0;
+  // closed list goes stale too (kills/resumes) — marked, not eagerly
+  // recomputed: hook events call this many times a second while agents work
+  if (closedWarm.value) closedWarm.value.at = 0;
+  void refreshSnapshot();
+};
+
+/**
+ * Remove a killed agent from the snapshot IMMEDIATELY. Serving stale data
+ * while the refresh runs is fine everywhere except here: a client's
+ * optimistic kill removal would see the dead agent flash back for a poll or
+ * two, which reads as "the kill didn't work".
+ */
+function dropFromSnapshot(host: string, name: string): void {
+  if (snapshot) {
+    snapshot.agents = snapshot.agents.filter((a) => !(a.name === name && (a.host ?? LOCAL_HOST) === host));
+  }
+  const cached = remoteListingCache.get(host);
+  if (cached) cached.agents = cached.agents.filter((a) => a.name !== name);
+}
+
+function getLocalListing(): Promise<TmuxAgent[]> {
+  if (localListingCache && Date.now() - localListingCache.at < 2000) {
+    return Promise.resolve(localListingCache.agents);
+  }
+  localListingInFlight ??= computeLocalListing()
+    .then((agents) => {
+      localListingCache = { at: Date.now(), agents };
+      return agents;
+    })
+    .finally(() => {
+      localListingInFlight = null;
+    });
+  return localListingInFlight;
+}
+
+// An unreachable machine must not blank its agents out of every open view —
+// its last good listing is served as `stale` ghosts (rendered "offline")
+// until the machine reconnects or is removed. A brief fetch hiccup while the
+// tunnel still looks healthy serves the cache unmarked: if the tunnel really
+// died, the SSE watchdog flips the host's status shortly and the stale
+// marking takes over.
+const remoteListingCache = new Map<string, { at: number; agents: TmuxAgent[] }>();
 
 async function computeTmuxListing(): Promise<TmuxAgent[]> {
+  const connected = new Map(connectedHosts().map((h) => [h.id, h.baseUrl]));
+  const hostIds = [...new Set([...getHostsInfo().map((h) => h.id), ...remoteListingCache.keys()])];
   const [local, ...remote] = await Promise.all([
-    computeLocalListing(),
-    ...connectedHosts().map(async ({ id, baseUrl }) => {
+    getLocalListing(),
+    ...hostIds.map(async (id) => {
+      const baseUrl = connected.get(id);
+      // ?local=1 keeps a remote from merging ITS remotes into the answer —
+      // no double-stamping, and no listing cycles between two dashboards.
       // 8s: a cold remote listing fans out ~20 subprocesses and can outlast
       // a short timeout; its own cache makes every later poll fast
-      const agents = await fetchRemoteJson<TmuxAgent[]>(baseUrl, '/tmux', 8000);
-      return (agents ?? []).map((a) => ({ ...a, host: id }));
+      const agents = baseUrl ? await fetchRemoteJson<TmuxAgent[]>(baseUrl, '/tmux?local=1', 8000) : null;
+      if (agents) {
+        const stamped = agents.map((a) => ({ ...a, host: id, stale: undefined }));
+        remoteListingCache.set(id, { at: Date.now(), agents: stamped });
+        return stamped;
+      }
+      const cached = remoteListingCache.get(id);
+      if (!cached) return [];
+      if (baseUrl) return cached.agents; // transient hiccup — see above
+      return cached.agents.map((a) => ({ ...a, stale: true }));
     }),
   ]);
   // one createdAt order across machines keeps 1-9 jumps and tab order stable
@@ -386,30 +510,39 @@ async function computeLocalListing(): Promise<TmuxAgent[]> {
     // semantic approval signal pushed by the CLI's own hooks — separate from
     // the transcript block above, which early-returns when no live path has
     // resolved yet (fresh agents). Skipped once the turn is provably over
-    // (an esc'd dialog ends the turn without a clearing hook event).
-    if (a.agentRunning && a.turnState !== 'idle' && approvalPending(a.sessionId ?? a.resumedFrom)) {
+    // (an esc'd dialog ends the turn without a clearing hook event), and
+    // cleared by any transcript write after the ask (a denial runs no tool
+    // and fires no hook — the interrupt record it writes is the only signal).
+    const hookId = a.sessionId ?? a.resumedFrom;
+    if (a.agentRunning && a.turnState !== 'idle' && approvalPending(hookId, a.lastWriteMs)) {
       a.approvalPending = true;
     }
+    // sessions with hook traffic get their input-needed state EXCLUSIVELY
+    // from hooks — the client skips pane-text matching for them (prose like
+    // "do you want to…" made the regex fire on ordinary conversation).
+    // CLAUDE ONLY: codex has no approval hook (notify is turn-complete only),
+    // so codex must keep the chrome-regex fallback even when notify-tracked.
+    if (a.provider === 'claude' && hookMonitored(hookId)) a.hookMonitored = true;
   }
   return agents;
 }
 
-router.get('/tmux', asyncRoute(async (_req, res) => {
-  if (tmuxListingCache && Date.now() - tmuxListingCache.at < 2000) {
-    res.json(tmuxListingCache.agents);
+router.get('/tmux', asyncRoute(async (req, res) => {
+  // aggregators ask for ?local=1: this machine's agents only, never a merge —
+  // the cycle-breaker that makes dashboard→dashboard loops harmless
+  if (req.query.local) {
+    res.json(await getLocalListing());
     return;
   }
-  if (!tmuxListingInFlight) {
-    tmuxListingInFlight = computeTmuxListing()
-      .then((agents) => {
-        tmuxListingCache = { at: Date.now(), agents };
-        return agents;
-      })
-      .finally(() => {
-        tmuxListingInFlight = null;
-      });
+  if (snapshot) {
+    // answer instantly from the warm snapshot; kick a refresh if it's aged
+    // (covers the no-SSE-client case where the keep-warm loop is idle)
+    if (Date.now() - snapshot.at >= 2000) void refreshSnapshot();
+    res.json(snapshot.agents);
+    return;
   }
-  res.json(await tmuxListingInFlight);
+  await refreshSnapshot();
+  res.json(snapshot ? (snapshot as { agents: TmuxAgent[] }).agents : []);
 }));
 
 // Receives every hook event from dashboard-launched claude agents (the hook
@@ -417,30 +550,44 @@ router.get('/tmux', asyncRoute(async (_req, res) => {
 router.post('/hooks/claude', asyncRoute(async (req, res) => {
   const sessionId = String(req.body?.session_id ?? '');
   const event = String(req.body?.hook_event_name ?? '');
+  const toolName = req.body?.tool_name ? String(req.body.tool_name) : undefined;
   if (sessionId && event) {
-    noteClaudeHookEvent(sessionId, event);
+    noteClaudeHookEvent(sessionId, event, toolName);
     // approval state changes should reach the UI on the next poll, not a
     // second later from the listing cache
     invalidateTmuxListing();
-    if (event === 'PermissionRequest') broadcast('tmux-changed');
+    if (event === 'PermissionRequest' || toolName === 'AskUserQuestion') broadcast('tmux-changed');
   }
   res.status(204).end();
 }));
 
-router.get('/tmux/closed', asyncRoute(async (_req, res) => {
+// codex `notify` events (turn-complete only — codex has no approval hook).
+// Gives an instant done push instead of waiting on the sqlite poll.
+router.post('/hooks/codex', asyncRoute(async (req, res) => {
+  const threadId = String(req.body?.['thread-id'] ?? '');
+  if (threadId && req.body?.type === 'agent-turn-complete') {
+    noteCodexEvent(threadId);
+    invalidateTmuxListing();
+    broadcast('tmux-changed');
+  }
+  res.status(204).end();
+}));
+
+async function computeClosedListing(includeRemote: boolean): Promise<ClosedAgent[]> {
   // show what each closed agent's conversation actually is, so a custom
   // name can be cross-checked against the chat it belongs to
   const byId = new Map((await getAllSessions()).map((s) => [s.id.toLowerCase(), s]));
   // hide (not delete) entries whose conversation a running agent owns —
   // resuming one would duplicate it; the entry returns if that agent dies
-  const [live, ...remote] = await Promise.all([
-    liveConversations(),
-    ...connectedHosts().map(async ({ id, baseUrl }) => {
-      const entries = await fetchRemoteJson<ClosedAgent[]>(baseUrl, '/tmux/closed');
-      // the remote server has already joined titles and filtered live owners
-      return (entries ?? []).map((e) => ({ ...e, host: id }));
-    }),
-  ]);
+  // ?local=1 skips the remote fan-out — the cycle-breaker aggregators use
+  const remoteFetches = !includeRemote
+    ? []
+    : connectedHosts().map(async ({ id, baseUrl }) => {
+        const entries = await fetchRemoteJson<ClosedAgent[]>(baseUrl, '/tmux/closed?local=1');
+        // the remote server has already joined titles and filtered live owners
+        return (entries ?? []).map((e) => ({ ...e, host: id }));
+      });
+  const [live, ...remote] = await Promise.all([liveConversations(), ...remoteFetches]);
   const localEntries = getClosedAgents()
     .filter((e) => !e.sessionId || !live.has(`${e.provider}:${e.sessionId.toLowerCase()}`))
     .map((e) => ({
@@ -448,8 +595,46 @@ router.get('/tmux/closed', asyncRoute(async (_req, res) => {
       host: LOCAL_HOST,
       conversationTitle: e.sessionId ? byId.get(e.sessionId.toLowerCase())?.title : undefined,
     }));
-  res.json([...localEntries, ...remote.flat()]
-    .sort((a, b) => b.closedAt.localeCompare(a.closedAt)));
+  return [...localEntries, ...remote.flat()]
+    .sort((a, b) => b.closedAt.localeCompare(a.closedAt));
+}
+
+// Same serve-stale-while-refreshing shape as the agents snapshot: the closed
+// list is polled every 5s per tab and costs a session scan plus a remote
+// round trip per machine (measured ~940ms) — nobody should wait on that.
+const closedWarm = { value: null as null | { at: number; entries: ClosedAgent[] }, inflight: null as null | Promise<void>, queued: false };
+function refreshClosed(): Promise<void> {
+  if (closedWarm.inflight) {
+    closedWarm.queued = true;
+    return closedWarm.inflight;
+  }
+  closedWarm.inflight = computeClosedListing(true)
+    .then((entries) => {
+      closedWarm.value = { at: Date.now(), entries };
+    })
+    .catch((err) => console.error('closed refresh failed:', err))
+    .finally(() => {
+      closedWarm.inflight = null;
+      if (closedWarm.queued) {
+        closedWarm.queued = false;
+        void refreshClosed();
+      }
+    });
+  return closedWarm.inflight;
+}
+
+router.get('/tmux/closed', asyncRoute(async (req, res) => {
+  if (req.query.local) {
+    res.json(await computeClosedListing(false));
+    return;
+  }
+  if (closedWarm.value) {
+    if (Date.now() - closedWarm.value.at >= 4000) void refreshClosed();
+    res.json(closedWarm.value.entries);
+    return;
+  }
+  await refreshClosed();
+  res.json(closedWarm.value ? (closedWarm.value as { entries: ClosedAgent[] }).entries : []);
 }));
 
 router.delete('/tmux/closed/:id', asyncRoute(async (req, res) => {
@@ -473,6 +658,7 @@ router.delete('/tmux/:name', asyncRoute(async (req, res) => {
     }
     throw err;
   }
+  dropFromSnapshot(LOCAL_HOST, req.params.name);
   invalidateTmuxListing();
   broadcast('tmux-changed');
   res.status(204).end();
@@ -534,6 +720,26 @@ router.post('/tmux/:name/model', asyncRoute(async (req, res) => {
   }
   try {
     res.json(await driveCodexModelPicker(req.params.name, { model, effort }));
+  } catch (err) {
+    res.status(409).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+}));
+
+// neither CLI has a command for permission/plan mode — shift+tab is cycled
+// key-by-key with pane verification (modecycle.ts)
+router.post('/tmux/:name/mode', asyncRoute(async (req, res) => {
+  const { mode } = (req.body ?? {}) as { mode?: string };
+  if (typeof mode !== 'string' || !mode) {
+    res.status(400).json({ error: 'mode required' });
+    return;
+  }
+  const provider = await getSessionOption(req.params.name, '@agent_provider');
+  if (provider !== 'claude' && provider !== 'codex') {
+    res.status(400).json({ error: 'agent has no known provider' });
+    return;
+  }
+  try {
+    res.json(await cycleAgentMode(req.params.name, provider, mode));
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : String(err) });
   }
