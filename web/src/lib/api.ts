@@ -83,7 +83,14 @@ export const fetchTranscript = async (
   if (opts.tail != null) params.set('tail', String(opts.tail));
   if (opts.offset != null) params.set('offset', String(opts.offset));
   if (opts.limit != null) params.set('limit', String(opts.limit));
-  const res = await fetch(`${apiBase(opts.host)}/sessions/${provider}/${id}/transcript?${params}`);
+  // Hard timeout: the browser allows ~6 concurrent connections per origin,
+  // so transcript polls left hanging by a wedged server pin every slot and
+  // freeze ALL fetching (agents, SSE, other chats) until a hard refresh.
+  // Better one failed poll (react-query keeps stale data and retries) than a
+  // dead app.
+  const res = await fetch(`${apiBase(opts.host)}/sessions/${provider}/${id}/transcript?${params}`, {
+    signal: AbortSignal.timeout(20_000),
+  });
   if (res.status === 404) return null;
   if (!res.ok) {
     let detail = res.statusText;

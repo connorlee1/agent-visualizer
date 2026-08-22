@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CLAUDE_PROJECTS_DIR, SUMMARIZER_CWD } from '../config';
 import type { ContentBlock, Message, SessionSummary } from '../../shared/types';
-import { readHeadLines, readTailLines, safeIso, streamLinesFrom } from './parse';
+import { capText, readHeadLines, readTailLines, safeIso, streamLinesFrom } from './parse';
 
 interface CacheEntry {
   mtimeMs: number;
@@ -168,7 +168,7 @@ function claudeContent(rec: any): ContentBlock[] {
         blocks.push({
           kind: 'tool_result',
           toolId: item.tool_use_id,
-          text: toolResultText(item.content),
+          text: capText(toolResultText(item.content)),
           isError: item.is_error === true,
         });
         break;

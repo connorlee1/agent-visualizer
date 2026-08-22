@@ -109,6 +109,11 @@ async function transcriptStat(summary: SessionSummary): Promise<{ mtimeMs: numbe
   return { mtimeMs, size };
 }
 
+// One parse per file no matter how many polls stack up: a slow parse used to
+// run once per concurrent request, with new requests arriving faster than the
+// old ones finished — the backlog is what turned "slow" into "hung".
+const parseInFlight = new Map<string, Promise<Message[]>>();
+
 async function parseTranscript(summary: SessionSummary): Promise<Message[]> {
   const stat = await transcriptStat(summary);
   const cached = transcriptCache.get(summary.filePath);
@@ -117,15 +122,25 @@ async function parseTranscript(summary: SessionSummary): Promise<Message[]> {
     transcriptCache.set(summary.filePath, cached);
     return cached.messages;
   }
-  const messages = summary.provider === 'claude'
-    ? await parseClaudeTranscript(summary.filePath)
-    : await parseCodexSessionTranscript(summary);
-  transcriptCache.set(summary.filePath, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
-  while (transcriptCache.size > TRANSCRIPT_LRU_MAX) {
-    const oldest = transcriptCache.keys().next().value as string;
-    transcriptCache.delete(oldest);
+  const inflight = parseInFlight.get(summary.filePath);
+  if (inflight) return inflight;
+  const job = (async () => {
+    const messages = summary.provider === 'claude'
+      ? await parseClaudeTranscript(summary.filePath)
+      : await parseCodexSessionTranscript(summary);
+    transcriptCache.set(summary.filePath, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
+    while (transcriptCache.size > TRANSCRIPT_LRU_MAX) {
+      const oldest = transcriptCache.keys().next().value as string;
+      transcriptCache.delete(oldest);
+    }
+    return messages;
+  })();
+  parseInFlight.set(summary.filePath, job);
+  try {
+    return await job;
+  } finally {
+    parseInFlight.delete(summary.filePath);
   }
-  return messages;
 }
 
 export async function getTranscript(

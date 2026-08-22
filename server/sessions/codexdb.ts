@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { ContentBlock, Message } from '../../shared/types';
+import { capText } from './parse';
 
 /**
  * Codex 0.147+ runs conversations in `history_mode: paginated`: the rollout
@@ -77,7 +78,7 @@ function itemToMessage(raw: string, createdAtMs: number): Message | null {
       }];
       const output = item.aggregatedOutput ?? item.output;
       if (typeof output === 'string' && output.trim()) {
-        blocks.push({ kind: 'tool_result', toolId: id, text: output, isError: item.exitCode ? item.exitCode !== 0 : false });
+        blocks.push({ kind: 'tool_result', toolId: id, text: capText(output), isError: item.exitCode ? item.exitCode !== 0 : false });
       }
       return msg('assistant', blocks);
     }
@@ -139,8 +140,12 @@ export async function codexDbTranscript(threadId: string): Promise<Message[] | n
     state = { lastMs: 0, lastRowid: 0, messages: [] };
     ingestRows(state, rows);
   } else {
+    // seek on rowid (the table's PK) rather than filter on thread_id:
+    // codex's schema has no thread_id index, so a thread_id-first plan scans
+    // every row of every thread per poll (113k rows measured ~2s); rowid > N
+    // touches only rows appended since the watermark
     const rows = await query<{ rowid: number; item_json: string; created_at_ms: number }>(
-      `SELECT rowid, item_json, created_at_ms FROM thread_items WHERE thread_id='${id}' AND (created_at_ms > ${state.lastMs} OR (created_at_ms = ${state.lastMs} AND rowid > ${state.lastRowid})) ORDER BY created_at_ms ASC, rowid ASC LIMIT ${MAX_ITEMS}`,
+      `SELECT rowid, item_json, created_at_ms FROM thread_items WHERE rowid > ${state.lastRowid} AND thread_id='${id}' ORDER BY rowid ASC LIMIT ${MAX_ITEMS}`,
     );
     // sqlite hiccup mid-append: last known state beats a null that would
     // bounce every caller to the (stale) rollout fallback
@@ -171,8 +176,11 @@ export async function codexDbState(threadId: string): Promise<CodexDbState | nul
   const cached = stateCache.get(threadId);
   if (cached && Date.now() - cached.at < 1500) return cached.value;
   const rows = await query<{ completed_at: number | null; status: string; last_item: number | null }>(
+    // ORDER BY rowid DESC LIMIT 1 instead of MAX(created_at_ms): no thread_id
+    // index exists, and the backwards rowid walk stops at the thread's newest
+    // row instead of scanning the whole table for a MAX
     `SELECT t.completed_at, t.status,
-            (SELECT MAX(created_at_ms) FROM thread_items WHERE thread_id=t.thread_id) AS last_item
+            (SELECT created_at_ms FROM thread_items WHERE thread_id=t.thread_id ORDER BY rowid DESC LIMIT 1) AS last_item
        FROM thread_turns t WHERE t.thread_id='${threadId.toLowerCase()}'
        ORDER BY t.started_at DESC LIMIT 1`,
   );

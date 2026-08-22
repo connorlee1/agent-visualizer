@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CODEX_SESSIONS_DIR } from '../config';
 import type { ContentBlock, Message, SessionSummary } from '../../shared/types';
-import { readHeadLines, readTailLines, safeIso, streamLines } from './parse';
+import { capText, readHeadLines, readTailLines, safeIso, streamLinesFrom } from './parse';
 
 interface CacheEntry {
   mtimeMs: number;
@@ -191,6 +191,40 @@ export async function listCodexSessions(): Promise<SessionSummary[]> {
  * session_id. Codex sometimes appends new turns to the ORIGINAL file on
  * resume, so merge by record timestamp rather than trusting file order.
  */
+// Rollout parses cached by the files' OWN identity. The conversation
+// fingerprint tracks the sqlite db and changes every few seconds on an active
+// paginated thread, but the rollout files sit still between page flushes —
+// re-streaming them per chat poll (a campaign session's group is 281MB,
+// measured ~15s) stacked requests faster than the 3s poll drained them.
+const rolloutParseCache = new Map<string, { fp: string; messages: Message[] }>();
+const ROLLOUT_PARSE_MAX = 24;
+
+async function parseRolloutGroup(sessionId: string, list: string[]): Promise<Message[]> {
+  const stats = await Promise.all(list.map((f) => fs.stat(f).catch(() => null)));
+  const fp = list.map((f, i) => `${f}:${stats[i]?.size ?? 0}:${stats[i]?.mtimeMs ?? 0}`).join('|');
+  const cached = rolloutParseCache.get(sessionId);
+  if (cached && cached.fp === fp) {
+    rolloutParseCache.delete(sessionId); // refresh LRU position
+    rolloutParseCache.set(sessionId, cached);
+    return cached.messages;
+  }
+  const out: Message[] = [];
+  for (let i = 0; i < list.length; i++) {
+    out.push(...await parseCodexFile(list[i], `F${i}`));
+  }
+  if (list.length > 1) {
+    out.sort((a, b) => {
+      if (!a.timestamp || !b.timestamp) return 0;
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
+  }
+  rolloutParseCache.set(sessionId, { fp, messages: out });
+  while (rolloutParseCache.size > ROLLOUT_PARSE_MAX) {
+    rolloutParseCache.delete(rolloutParseCache.keys().next().value as string);
+  }
+  return out;
+}
+
 export async function parseCodexSessionTranscript(session: SessionSummary): Promise<Message[]> {
   // paginated codex (0.147+) streams items to sqlite and only page-flushes
   // the rollout — prefer the db whenever it has at least as much history
@@ -198,29 +232,52 @@ export async function parseCodexSessionTranscript(session: SessionSummary): Prom
   const fromDb = await codexDbTranscript(session.id).catch(() => null);
   const files = getCodexSessionFiles(session.id);
   const list = files.length ? files : [session.filePath];
-  const out: Message[] = [];
-  for (let i = 0; i < list.length; i++) {
-    out.push(...await parseCodexFile(list[i], `F${i}`));
-  }
+  const out = await parseRolloutGroup(session.id, list);
   if (fromDb && fromDb.length >= out.filter((m) => m.role !== 'system').length) return fromDb;
-  if (list.length > 1) {
-    out.sort((a, b) => {
-      if (!a.timestamp || !b.timestamp) return 0;
-      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-    });
-  }
   return out;
 }
 
+/**
+ * Per-FILE incremental parse state. Active paginated threads page-flush
+ * their rollouts every few seconds, so the group fingerprint above misses
+ * constantly — and a full re-stream of a campaign group (281MB) burned ~70%
+ * of a core continuously (CPU-profiled). Rollouts are append-only: keep the
+ * parsed messages plus a byte offset per file and only stream appended
+ * complete lines; a shrink (rewrite — rare) resets that file cleanly.
+ */
+interface RolloutFileState {
+  bytes: number;
+  lineNo: number;
+  messages: Message[];
+}
+const rolloutFileCache = new Map<string, RolloutFileState>();
+// Sized for the WORST real group sum, not a guess: two live campaign groups
+// measured 148 files / 1.1GB — a cap below the working set means permanent
+// eviction thrash, i.e. re-streaming the gigabyte on every page flush.
+// capText bounds what each parsed file retains, so memory stays sane.
+const ROLLOUT_FILE_MAX = 512;
+
 async function parseCodexFile(filePath: string, idPrefix: string): Promise<Message[]> {
-  const messages: Message[] = [];
-  let lineNo = 0;
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat) return rolloutFileCache.get(filePath)?.messages ?? [];
+  let st = rolloutFileCache.get(filePath);
+  if (!st || stat.size < st.bytes) st = { bytes: 0, lineNo: 0, messages: [] };
+  const state = st;
+  rolloutFileCache.delete(filePath);
+  rolloutFileCache.set(filePath, state);
+  while (rolloutFileCache.size > ROLLOUT_FILE_MAX) {
+    rolloutFileCache.delete(rolloutFileCache.keys().next().value as string);
+  }
+  if (stat.size <= state.bytes) return state.messages;
 
+  const messages = state.messages;
   const push = (role: Message['role'], content: ContentBlock[], timestamp?: string) => {
-    if (content.length) messages.push({ id: `${idPrefix}L${lineNo}`, role, timestamp, content });
+    if (content.length) messages.push({ id: `${idPrefix}L${state.lineNo}`, role, timestamp, content });
   };
+  let lineNo = state.lineNo; // eslint-disable-line prefer-const -- mirrors pre-incremental shape below
 
-  await streamLines(filePath, (rec) => {
+  state.bytes += await streamLinesFrom(filePath, state.bytes, (rec) => {
+    lineNo = ++state.lineNo;
     lineNo++;
     if (rec?.type !== 'response_item' || !rec.payload) return;
     const p = rec.payload;
@@ -260,7 +317,7 @@ async function parseCodexFile(filePath: string, idPrefix: string): Promise<Messa
           try { raw = JSON.parse(raw); } catch { /* plain text that happens to start with a bracket */ }
         }
         const text = typeof raw === 'string' ? raw : itemText(raw?.content ?? raw) || JSON.stringify(raw ?? '');
-        push('user', [{ kind: 'tool_result', toolId: p.call_id, text }], rec.timestamp);
+        push('user', [{ kind: 'tool_result', toolId: p.call_id, text: capText(text) }], rec.timestamp);
         break;
       }
     }

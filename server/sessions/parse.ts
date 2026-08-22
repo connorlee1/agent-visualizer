@@ -91,6 +91,15 @@ export async function streamLines(filePath: string, onRecord: (record: any) => v
   }
 }
 
+/**
+ * Cap pathological tool outputs. The UI renders at most ~20k chars of a
+ * result, but multi-hundred-KB aggregated outputs were being parsed, held in
+ * every cache layer, and shipped to the browser on each poll — a campaign
+ * thread's transcript pull measured 122MB before this cap.
+ */
+export const capText = (s: string, max = 20_000): string =>
+  s.length > max ? `${s.slice(0, max)}\n… [truncated ${s.length - max} chars]` : s;
+
 export function safeIso(value: unknown, fallback: Date): string {
   if (typeof value === 'string' || typeof value === 'number') {
     const d = new Date(value);

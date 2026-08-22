@@ -95,9 +95,11 @@ router.use('/h', (req, res) => {
     headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
     body: hasBody ? JSON.stringify(req.body) : undefined,
     // reads fail fast — a half-dead tunnel otherwise freezes every polling
-    // chat for the full minute; actions stay generous (codex model-picker
-    // drives can take a while)
-    signal: AbortSignal.timeout(req.method === 'GET' || req.method === 'HEAD' ? 10_000 : 60_000),
+    // chat for the full minute — but not TOO fast: a remote thread's cold
+    // transcript load legitimately runs 7-12s, and cutting it off just
+    // manufactures failures. Actions stay generous (codex model-picker
+    // drives can take a while).
+    signal: AbortSignal.timeout(req.method === 'GET' || req.method === 'HEAD' ? 15_000 : 60_000),
   }).then(async (r) => {
     // a successful forwarded kill must leave the snapshot immediately —
     // see dropFromSnapshot (stale-serve would flash the dead agent back)
@@ -348,16 +350,40 @@ router.post('/agents', asyncRoute(async (req, res) => {
 let snapshot: { at: number; agents: TmuxAgent[] } | null = null;
 let refreshing: Promise<void> | null = null;
 let refreshQueued = false;
+let lastRefreshStart = 0;
+let refreshTimer: NodeJS.Timeout | null = null;
 let localListingCache: { at: number; agents: TmuxAgent[] } | null = null;
 let localListingInFlight: Promise<TmuxAgent[]> | null = null;
 
-function refreshSnapshot(): Promise<void> {
+// Hard floor between compute STARTS. Without it, hook events (several per
+// second per WORKING agent) queued back-to-back recomputes and the "warm
+// loop" became a busy loop — measured ~65-105% of a core sustained. Paced,
+// the worst case is one fan-out per 2s, same total cost as one polling tab
+// under the old design. Approval signals ride a shorter fuse: the orange
+// banner appearing fast is the one place snapshot age is actually felt.
+const REFRESH_GAP_MS = 2000;
+const URGENT_GAP_MS = 500;
+
+function refreshSnapshot(urgent = false): Promise<void> {
   if (refreshing) {
-    // a change arrived mid-compute — run one more pass after this one so the
-    // snapshot can't miss it; N invalidations coalesce into a single rerun
+    // a change arrived mid-compute — one more pass after this one; N
+    // invalidations coalesce into that single rerun
     refreshQueued = true;
     return refreshing;
   }
+  const gap = urgent ? URGENT_GAP_MS : REFRESH_GAP_MS;
+  const wait = lastRefreshStart + gap - Date.now();
+  if (wait > 0) {
+    // too soon — schedule exactly one deferred run at the pacing boundary
+    if (!refreshTimer) {
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void refreshSnapshot(urgent);
+      }, wait);
+    }
+    return Promise.resolve();
+  }
+  lastRefreshStart = Date.now();
   refreshing = computeTmuxListing()
     .then((agents) => {
       snapshot = { at: Date.now(), agents };
@@ -375,16 +401,16 @@ function refreshSnapshot(): Promise<void> {
 
 // keep the snapshot warm while anyone is watching; idle machines pay nothing
 setInterval(() => {
-  if (hasClients() && Date.now() - (snapshot?.at ?? 0) >= 2000) void refreshSnapshot();
+  if (hasClients() && Date.now() - (snapshot?.at ?? 0) >= REFRESH_GAP_MS) void refreshSnapshot();
 }, 500);
 
-const invalidateTmuxListing = () => {
+const invalidateTmuxListing = (urgent = false) => {
   localListingCache = null;
   if (snapshot) snapshot.at = 0;
   // closed list goes stale too (kills/resumes) — marked, not eagerly
   // recomputed: hook events call this many times a second while agents work
   if (closedWarm.value) closedWarm.value.at = 0;
-  void refreshSnapshot();
+  void refreshSnapshot(urgent);
 };
 
 /**
@@ -553,10 +579,12 @@ router.post('/hooks/claude', asyncRoute(async (req, res) => {
   const toolName = req.body?.tool_name ? String(req.body.tool_name) : undefined;
   if (sessionId && event) {
     noteClaudeHookEvent(sessionId, event, toolName);
-    // approval state changes should reach the UI on the next poll, not a
-    // second later from the listing cache
-    invalidateTmuxListing();
-    if (event === 'PermissionRequest' || toolName === 'AskUserQuestion') broadcast('tmux-changed');
+    // approval state changes should reach the UI fast — those get the urgent
+    // (short-fuse) refresh; ordinary tool-lifecycle events just mark stale
+    // and ride the paced loop
+    const urgent = event === 'PermissionRequest' || toolName === 'AskUserQuestion';
+    invalidateTmuxListing(urgent);
+    if (urgent) broadcast('tmux-changed');
   }
   res.status(204).end();
 }));

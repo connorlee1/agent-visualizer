@@ -136,11 +136,15 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
 
   // A stalled tunnel or failing poll leaves the transcript frozen on stale
   // data with no other tell — say so instead of reading as a rendering bug.
+  // Only after failures have PERSISTED, though: one slow cold load or one
+  // blip mid-reconnect self-heals on the next 3s poll, and a banner that
+  // flashes for those cries wolf.
   const host = hostOf(agent);
   const { data: hostsInfo } = useHosts();
   const hostDown =
     isRemoteHost(host) && !!hostsInfo && !hostsInfo.some((h) => h.id === host && h.status === 'connected');
-  const degraded = hostDown || transcript.isError;
+  const dataAge = Date.now() - (transcript.dataUpdatedAt || 0);
+  const degraded = (hostDown || transcript.isError) && dataAge > 15_000;
 
   // orientation strip after a real pause — the wall is where recaps get read
   const showRecap =
