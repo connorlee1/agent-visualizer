@@ -208,7 +208,7 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
       key={label}
       disabled={blocked}
       onClick={onClick}
-      className={`flex w-full items-center justify-between gap-1 px-2.5 py-1 text-left font-mono text-[11px] hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent ${
+      className={`flex w-full items-center justify-between gap-1 px-2.5 py-1 text-left font-body text-[11px] hover:bg-surface2 disabled:opacity-40 disabled:hover:bg-transparent ${
         active ? 'text-ink' : 'text-mut'
       }`}
     >

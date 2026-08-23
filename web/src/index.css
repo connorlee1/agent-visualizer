@@ -17,6 +17,14 @@
   --color-on-accent: #000000;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Style-owned font tiers (lib/styles.ts overrides both; defaults match
+     --font-mono). display: identity surfaces — wordmark, page headers, agent
+     names. body: ALL other UI text — nav, rows, readouts, transcripts,
+     buttons. --font-mono itself is never themed: it marks content that IS
+     code or terminal output (pane previews, tool dumps, code blocks, the
+     file viewer, keycaps), which must stay monospace in every style. */
+  --font-display: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-body: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 /* Themable non-utility tokens; lib/themes.ts overrides all of these (and the
@@ -40,6 +48,45 @@
   --ansi-bright-magenta: #dcaff5;
   --ansi-bright-cyan: #5eead4;
   --ansi-bright-white: #e6e9ef;
+
+  /* Style tokens (lib/styles.ts overrides these): radii tiers, border
+     treatment, and readout glyphs. Defaults = the 'console' style so the
+     pre-JS frame looks right. */
+  --radius-chip: 4px;   /* chips, small buttons, inputs */
+  --radius-pane: 5px;   /* wall panes, agent cards */
+  --radius-panel: 12px; /* large list containers, popovers */
+  --edge-w: 1px;
+  --edge-style: solid;
+  --glyph-prompt: '❯';
+  --glyph-agent: '⏺';
+  --glyph-working: '●';
+  --glyph-approval: '▲';
+  --glyph-waiting: '◌';
+  --glyph-exited: '■';
+  --glyph-shell: '·';
+  --glyph-offline: '⌁';
+}
+
+/* Style glyphs live in CSS vars and render via ::before, so a style hop
+   re-glyphs every readout with zero React re-renders (nothing on the wall
+   remounts). .g-status picks its glyph from the data-st status attribute. */
+.g-prompt::before { content: var(--glyph-prompt); }
+.g-agent::before { content: var(--glyph-agent); }
+.g-status::before { content: var(--glyph-waiting); }
+.g-status[data-st='working']::before { content: var(--glyph-working); }
+.g-status[data-st='needs-approval']::before { content: var(--glyph-approval); }
+.g-status[data-st='exited']::before { content: var(--glyph-exited); }
+.g-status[data-st='shell']::before { content: var(--glyph-shell); }
+.g-status[data-st='offline']::before { content: var(--glyph-offline); }
+
+/* Border treatment on the two card-grade surfaces. Same specificity as
+   Tailwind's border utilities but later in the cascade, so the style wins;
+   with the console defaults this is a no-op. Inline per-side styles (the
+   provider stripe on AgentCard) still override it. */
+[data-pane],
+[data-card] {
+  border-width: var(--edge-w);
+  border-style: var(--edge-style);
 }
 
 html,
@@ -58,7 +105,10 @@ body {
     var(--color-bg);
   background-attachment: fixed;
   color: var(--color-ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
+  /* styles with small-x-height faces normalize their visual size here
+     (lib/styles.ts fonts.adjust) instead of resizing every text-[*] class */
+  font-size-adjust: var(--font-adjust, none);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
@@ -103,8 +153,8 @@ body {
 .flash-remind-overlay {
   pointer-events: none;
   position: absolute;
-  inset: -1px;
-  border-radius: 4px;
+  inset: calc(-1 * var(--edge-w));
+  border-radius: var(--radius-pane);
 }
 .flash-done-overlay {
   background: color-mix(in srgb, var(--tint, var(--color-claude)) 20%, transparent);
@@ -165,8 +215,8 @@ body {
 .md ul, .md ol { margin: 0.35em 0; padding-left: 1.4em; }
 .md ul { list-style: disc; } .md ol { list-style: decimal; }
 .md li { margin: 0.15em 0; }
-.md code { font-family: var(--font-mono); font-size: 0.92em; color: var(--ansi-yellow); background: var(--color-surface2); border: 1px solid var(--color-edge); border-radius: 4px; padding: 0.05em 0.3em; }
-.md pre { background: var(--color-bg); border: 1px solid var(--color-edge); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 0.5em 0; }
+.md code { font-family: var(--font-mono); font-size: 0.92em; color: var(--ansi-yellow); background: var(--color-surface2); border: 1px solid var(--color-edge); border-radius: var(--radius-chip); padding: 0.05em 0.3em; }
+.md pre { background: var(--color-bg); border: 1px solid var(--color-edge); border-radius: var(--radius-chip); padding: 8px 10px; overflow-x: auto; margin: 0.5em 0; }
 .md pre code { background: none; border: none; padding: 0; font-size: 11px; line-height: 1.5; color: var(--color-ink); }
 .md a { color: var(--color-codex); text-decoration: underline; }
 .md blockquote { border-left: 3px solid var(--color-claude); padding-left: 10px; color: var(--color-mut); margin: 0.5em 0; }
@@ -234,6 +284,182 @@ body {
 }
 [data-zoom] .center-col {
   max-width: none;
+}
+
+/* ——— style effects ———
+   The whitelist styles opt into via data-fx on <html> (never CSS shipped by
+   a style/theme pack). Two page-overlay slots: body::after carries the big
+   wash (scanlines / parchment / vignette / horizon — at most ONE per style)
+   and body::before carries 'grain' (composes with any ::after wash). The
+   selector-only effects (glow, pixel, ornate, soft) compose freely.
+   Overlays are fixed, pointer-transparent; the CRT ones sit above
+   everything (z-100 > the ⌥F zoom's z-80) — a CRT is a CRT over modals
+   too — while horizon sits BEHIND content like the ambient wash. */
+
+/* scanlines — CRT raster + corner shading, the arcade bezel */
+html[data-fx~='scanlines'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background:
+    radial-gradient(135% 110% at 50% 45%, transparent 62%, rgba(0, 0, 0, 0.42)),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+}
+
+/* parchment — warm sepia vignette + paper mottle */
+html[data-fx~='parchment'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 95% at 50% 40%, transparent 46%, color-mix(in srgb, #6b4a1f 26%, transparent)),
+    radial-gradient(60% 45% at 18% 12%, color-mix(in srgb, #8a6a35 7%, transparent), transparent 70%),
+    radial-gradient(55% 45% at 85% 90%, color-mix(in srgb, #6b4a1f 9%, transparent), transparent 70%);
+}
+
+/* vignette — lantern-lit edges */
+html[data-fx~='vignette'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: radial-gradient(130% 100% at 50% 45%, transparent 50%, rgba(0, 0, 0, 0.45));
+}
+
+/* horizon — synthwave perspective grid on the page floor, tinted by the
+   active palette's accent. Behind all content (negative z-index paints
+   above the canvas background but below #root). */
+html[data-fx~='horizon'] body::after {
+  content: '';
+  position: fixed;
+  left: -20vw;
+  right: -20vw;
+  bottom: -4vh;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-claude) 34%, transparent) 0 2px, transparent 2px 72px),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--color-claude) 36%, transparent) 0 2px, transparent 2px 48px),
+    linear-gradient(to top, color-mix(in srgb, var(--color-claude) 16%, transparent), transparent);
+  transform: perspective(440px) rotateX(58deg);
+  transform-origin: 50% 100%;
+  mask-image: linear-gradient(to top, black 25%, transparent 92%);
+  opacity: 0.55;
+}
+
+/* grain — film/paper noise (own ::before slot so it can ride any wash) */
+html[data-fx~='grain'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.16'/></svg>");
+}
+
+/* glow — the neon signature: everything important radiates. Tinted borders
+   and a rest-state halo on every pane/card, not just the focused one; wide
+   uppercase display type. */
+html[data-fx~='glow'] .font-display,
+html[data-fx~='glow'] .g-prompt,
+html[data-fx~='glow'] .g-agent,
+html[data-fx~='glow'] .g-status {
+  text-shadow: 0 0 9px color-mix(in srgb, currentColor 70%, transparent);
+}
+html[data-fx~='glow'] .font-display {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+html[data-fx~='glow'] .blink-cursor {
+  box-shadow: 0 0 9px var(--color-claude);
+}
+html[data-fx~='glow'] [data-pane],
+html[data-fx~='glow'] [data-card] {
+  box-shadow: 0 0 14px -4px color-mix(in srgb, var(--tint, var(--color-claude)) 65%, transparent);
+}
+html[data-fx~='glow'] [data-pane]:not(:focus-within):not(.pulse-alert-border) {
+  border-color: color-mix(in srgb, var(--tint, var(--color-claude)) 40%, var(--color-edge));
+}
+html[data-fx~='glow'] [data-pane]:focus-within:not(.pulse-alert-border) {
+  box-shadow:
+    0 0 0 1px var(--tint, var(--color-claude)),
+    0 0 22px -2px var(--tint, var(--color-claude));
+}
+
+/* pixel — hard-edged cartridge chrome: stepped drop shadows, shouty
+   headers. Composes with scanlines for the full cabinet. */
+html[data-fx~='pixel'] [data-pane] {
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
+}
+html[data-fx~='pixel'] [data-card] {
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.4);
+}
+html[data-fx~='pixel'] [data-pane]:focus-within:not(.pulse-alert-border) {
+  box-shadow:
+    0 0 0 1px var(--tint, var(--color-claude)),
+    4px 4px 0 rgba(0, 0, 0, 0.35);
+}
+html[data-fx~='pixel'] [data-pane-header] {
+  text-transform: uppercase;
+}
+
+/* ornate — illuminated-manuscript typography: small caps instead of
+   shouting, drop caps on prose, fleuron rules. */
+html[data-fx~='ornate'] .uppercase {
+  text-transform: none;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.05em;
+}
+html[data-fx~='ornate'] .md > p:first-child::first-letter {
+  float: left;
+  font-family: var(--font-display);
+  font-size: 2.5em;
+  line-height: 0.82;
+  padding: 0.05em 0.12em 0 0;
+  color: var(--color-claude);
+}
+html[data-fx~='ornate'] .md hr {
+  border: none;
+  margin: 0.9em 0;
+  text-align: center;
+}
+html[data-fx~='ornate'] .md hr::after {
+  content: '❦';
+  color: var(--color-claude);
+  font-size: 14px;
+}
+html[data-fx~='ornate'] .md h1,
+html[data-fx~='ornate'] .md h2,
+html[data-fx~='ornate'] .md h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+/* soft — tactile craft-paper chrome: lifted shadows, stitched seams,
+   italic display type. */
+html[data-fx~='soft'] [data-pane],
+html[data-fx~='soft'] [data-card] {
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.38);
+}
+html[data-fx~='soft'] [data-pane]:focus-within:not(.pulse-alert-border) {
+  box-shadow:
+    0 0 0 1px var(--tint, var(--color-claude)),
+    0 3px 16px rgba(0, 0, 0, 0.38);
+}
+html[data-fx~='soft'] [data-pane-header] {
+  border-bottom-style: dashed;
+}
+html[data-fx~='soft'] .divide-y > :not([hidden]) {
+  border-style: dashed;
+}
+html[data-fx~='soft'] .font-display {
+  font-style: italic;
 }
 
 ::selection {

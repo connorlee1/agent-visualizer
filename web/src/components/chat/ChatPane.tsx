@@ -170,12 +170,12 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
         {needsTerminal ? (
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-[420px] text-center text-[12.5px] leading-relaxed text-mut">
-              <div className="pb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+              <div className="pb-1 font-body text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
                 no conversation yet
               </div>
               The CLI is probably showing a screen only its terminal can display —
               a first-run login, a trust prompt, or a menu. Open the terminal
-              (<span className="font-mono text-ink">t</span> / <span className="font-mono text-ink">{altLabel('T')}</span>)
+              (<span className="font-body text-ink">t</span> / <span className="font-body text-ink">{altLabel('T')}</span>)
               to see and answer it.
             </div>
           </div>
@@ -190,7 +190,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             working ? (
               <div className="flex items-center gap-2.5 py-1 pl-1">
                 <span className="typing-dots"><span /><span /><span /></span>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">working…</span>
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">working…</span>
               </div>
             ) : null
           }
@@ -215,7 +215,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             <div className="mb-2.5 flex min-h-0 flex-col overflow-y-auto rounded-lg border border-alert/50 bg-alert/10 p-2.5">
               <div className="flex shrink-0 items-center gap-2">
                 {/* "input", not "approval" — selector dialogs (Rewind, pickers) land here too */}
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-alert">▲ Input required</span>
+                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.14em] text-alert"><span className="g-status" data-st="needs-approval" /> Input required</span>
                 <span className="ml-auto min-w-0 truncate text-[11px] text-faint">keys are pressed in the agent’s terminal</span>
                 {dialog?.multiSelect && (
                   <button
@@ -269,7 +269,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
               title={recapOpen ? `collapse (${altLabel('R')})` : `${agent.idleSummary} (${altLabel('R')})`}
               className="mb-1.5 flex w-full shrink-0 items-baseline gap-1.5 rounded-md border border-edge bg-surface2 px-2 py-0.5 text-left hover:border-faint"
             >
-              <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-faint">
+              <span className="shrink-0 font-body text-[9px] font-semibold uppercase tracking-[0.14em] text-faint">
                 {recapOpen ? '▾' : '▸'} recap
               </span>
               <span
@@ -282,7 +282,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
           {sendError && <div className="mb-1.5 text-[12px] text-red-400">{sendError}</div>}
           <div className="flex shrink-0 items-end gap-2">
             <div className="relative min-w-0 flex-1">
-              <span className="pointer-events-none absolute left-3 top-[7px] select-none font-mono text-[13px] font-bold text-claude">❯</span>
+              <span className="g-prompt pointer-events-none absolute left-3 top-[7px] select-none font-body text-[13px] font-bold text-claude" />
               <textarea
                 ref={inputRef}
                 value={draft}
@@ -295,12 +295,12 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
                 }}
                 rows={1}
                 placeholder={`message ${agent.cwd ? basename(agent.cwd) : agent.name}…`}
-                className="max-h-[40vh] w-full resize-none overflow-y-auto rounded-[4px] border border-edge bg-bg py-2 pl-8 pr-3 font-mono text-[12.5px] leading-relaxed outline-none placeholder:text-faint focus:border-faint"
+                className="max-h-[40vh] w-full resize-none overflow-y-auto rounded-(--radius-chip) border border-edge bg-bg py-2 pl-8 pr-3 font-body text-[12.5px] leading-relaxed outline-none placeholder:text-faint focus:border-faint"
               />
             </div>
             <button
               onClick={toggleSteps}
-              className={`rounded-[4px] border p-2.5 ${
+              className={`rounded-(--radius-chip) border p-2.5 ${
                 showSteps ? 'border-faint text-ink' : 'border-edge text-faint hover:text-mut'
               }`}
               title={showSteps ? 'hide intermediate steps' : 'show intermediate steps'}
@@ -310,7 +310,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             <button
               onClick={() => void send()}
               disabled={!draft.trim()}
-              className="rounded-[4px] bg-claude/90 p-2.5 text-on-accent hover:bg-claude disabled:opacity-40"
+              className="rounded-(--radius-chip) bg-claude/90 p-2.5 text-on-accent hover:bg-claude disabled:opacity-40"
               title="send (Enter)"
             >
               <SendHorizonal size={15} />

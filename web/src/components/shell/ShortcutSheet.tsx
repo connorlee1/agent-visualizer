@@ -81,7 +81,7 @@ export function ShortcutSheet() {
               </div>
               {s.rows.map(([keys, what]) => (
                 <div key={keys} className="flex items-baseline gap-2.5 px-1 py-[3px] text-[12px]">
-                  <span className="w-[88px] shrink-0 font-mono text-[11px] text-[color:var(--ansi-yellow)]">
+                  <span className="w-[88px] shrink-0 font-body text-[11px] text-[color:var(--ansi-yellow)]">
                     {keys}
                   </span>
                   <span className="text-mut">{what}</span>

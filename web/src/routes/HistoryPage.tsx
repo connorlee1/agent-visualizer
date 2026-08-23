@@ -65,7 +65,7 @@ export function HistoryPage() {
         <div className="mx-auto max-w-[760px] px-8 py-8">
           <div className="flex items-center gap-3 pb-1">
             <span className="h-[16px] w-[3px] shrink-0 self-center rounded-full bg-claude" />
-            <h1 className="truncate font-mono text-[17px] font-semibold tracking-tight">{selected ? selected.name : 'All conversations'}</h1>
+            <h1 className="truncate font-display text-[17px] font-semibold tracking-tight">{selected ? selected.name : 'All conversations'}</h1>
             {selected && (
               <button
                 onClick={() => openLaunch({ cwd: selected.path })}
@@ -77,7 +77,7 @@ export function HistoryPage() {
           </div>
           {selected && (
             <div className="flex items-center gap-4 pb-2">
-              <span className="truncate font-mono text-[11px] text-faint">{shortPath(selected.path)}</span>
+              <span className="truncate font-body text-[11px] text-faint">{shortPath(selected.path)}</span>
               <ActivitySparkbars weeks={selected.weeklyActivity} />
             </div>
           )}
@@ -118,7 +118,7 @@ export function HistoryPage() {
           {shown.length === 0 ? (
             <EmptyState title="No conversations match" />
           ) : (
-            <div className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface">
+            <div className="divide-y divide-edge overflow-hidden rounded-(--radius-panel) border border-edge bg-surface">
               {shown.map((s) => (
                 <ConversationRow
                   key={`${s.provider}-${s.id}`}

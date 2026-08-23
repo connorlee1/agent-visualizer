@@ -25,6 +25,10 @@
  * background ramp.
  */
 
+import { DEFAULT_STYLE_ID, STYLES, type Style } from './styles';
+
+export { STYLE_LIST, type Style } from './styles';
+
 export interface Theme {
   id: string;
   name: string;
@@ -333,16 +337,67 @@ export const THEMES: Record<string, Theme> = {
 export const THEME_LIST = Object.values(THEMES);
 const DEFAULT_ID = 'terracotta';
 const STORAGE_KEY = 'themeId';
+const STYLE_KEY = 'styleId';
 const DRIFT_KEY = 'themeDrift'; // '1' = ambient auto-cycle on
 const DRIFT_AT_KEY = 'themeDriftAt'; // epoch ms of the last automatic change
 export const DRIFT_MINUTES = 30;
 const DRIFT_MS = DRIFT_MINUTES * 60 * 1000;
 
 let currentId = DEFAULT_ID;
+let currentStyleId = DEFAULT_STYLE_ID;
 const listeners = new Set<() => void>();
 
 export function currentTheme(): Theme {
   return THEMES[currentId] ?? THEMES[DEFAULT_ID];
+}
+
+export function currentStyle(): Style {
+  return STYLES[currentStyleId] ?? STYLES[DEFAULT_STYLE_ID];
+}
+
+/**
+ * Apply a style's tokens (fonts, radii, borders, glyphs, effects) as CSS
+ * custom properties + data attributes on <html> and notify subscribers.
+ * Same live-update contract as applyTheme: nothing remounts, so the wall's
+ * terminals and their WebSockets are untouched. Styles never drift — this
+ * only runs from an explicit pick (or startup restore).
+ */
+export function applyStyle(id: string): void {
+  const style = STYLES[id] ?? STYLES[DEFAULT_STYLE_ID];
+  currentStyleId = style.id;
+  write(STYLE_KEY, style.id);
+
+  const root = document.documentElement;
+  const set = (k: string, v: string) => root.style.setProperty(k, v);
+  set('--font-display', style.fonts.display);
+  set('--font-body', style.fonts.body);
+  set('--font-adjust', style.fonts.adjust ?? 'none');
+  set('--radius-chip', style.radius.chip);
+  set('--radius-pane', style.radius.pane);
+  set('--radius-panel', style.radius.panel);
+  set('--edge-w', style.border.width);
+  set('--edge-style', style.border.style);
+  // glyphs are CSS content strings (rendered by the .g-* rules in index.css),
+  // so the values need embedded quotes
+  for (const [k, v] of Object.entries(style.glyphs)) set(`--glyph-${k}`, JSON.stringify(v));
+  root.dataset.styleId = style.id;
+  root.dataset.fx = style.effects.join(' ');
+  listeners.forEach((fn) => fn());
+}
+
+/** Explicit pick from the style list. Unlike palettes there is no drift to pin. */
+export function pickStyle(id: string): void {
+  applyStyle(id);
+}
+
+/** The xterm font for the active style (styles may leave the terminal alone). */
+export function terminalFontFamily(): string {
+  return currentStyle().fonts.terminal ?? `JetBrains Mono, Menlo, monospace`;
+}
+
+/** The xterm font size for the active style. */
+export function terminalFontSize(): number {
+  return currentStyle().fonts.terminalSize ?? 13;
 }
 
 /** Set every --color and --ansi custom property on <html> and notify subscribers. */
@@ -462,6 +517,7 @@ export function nudgeTheme(): void {
  * remains of its 30-minute slot.
  */
 export function initTheme(): void {
+  applyStyle(read(STYLE_KEY) ?? DEFAULT_STYLE_ID);
   const saved = read(STORAGE_KEY);
   if (!isDrifting()) {
     applyTheme(saved ?? DEFAULT_ID);

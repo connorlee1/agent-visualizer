@@ -9,7 +9,7 @@ import { useDirColor } from '../../lib/useDirColor';
 import { altLabel } from '../../lib/keys';
 import { useLinkedSession, useLinkedSummary } from '../../lib/useLinkedSession';
 import { useDoneFlash } from '../../lib/useDoneFlash';
-import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../../lib/status';
+import { STATUS_COLOR, STATUS_SHORT } from '../../lib/status';
 import { AgentStatusDot } from '../agents/AgentStatusDot';
 import { AgentMenu } from '../agents/AgentMenu';
 import { ModelEffortMenu } from '../agents/ModelEffortMenu';
@@ -61,7 +61,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
             className="ml-2 text-[9.5px] font-semibold uppercase tracking-[0.14em]"
             style={{ color: STATUS_COLOR[agent.status] }}
           >
-            {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
+            <span className="g-status" data-st={agent.status} /> {STATUS_SHORT[agent.status]}
             {agent.status === 'working' && <WorkingTimer name={agentRef!} />}
           </span>
         )}

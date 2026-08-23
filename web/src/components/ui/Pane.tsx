@@ -95,7 +95,7 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
               } as CSSProperties)
             : undefined
         }
-        className={`relative flex h-full min-h-0 flex-col rounded-[4px] border outline-none transition-colors duration-150 ${
+        className={`relative flex h-full min-h-0 flex-col rounded-(--radius-pane) border outline-none transition-colors duration-150 ${
           alert
             ? 'pulse-alert-border border-alert'
             : tint
@@ -103,14 +103,14 @@ export function Pane({ icon, title, titleAttr, agentName, alert = false, flash =
               : 'border-edge focus-within:border-claude/70'
         }`}
       >
-        <div data-pane-header className="flex h-7 shrink-0 items-center gap-2 rounded-t-[3px] border-b border-edge bg-surface px-2.5">
+        <div data-pane-header className="flex h-7 shrink-0 items-center gap-2 rounded-t-[calc(var(--radius-pane)_-_1px)] border-b border-edge bg-surface px-2.5">
           {icon}
-          <span className="truncate font-mono text-[11px] text-mut" title={titleAttr}>
+          <span className="truncate font-body text-[11px] text-mut" title={titleAttr}>
             {title}
           </span>
           <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-b-[3px] bg-bg">{children}</div>
+        <div className="min-h-0 flex-1 overflow-hidden rounded-b-[calc(var(--radius-pane)_-_1px)] bg-bg">{children}</div>
         {remind ? (
           <div className="flash-remind-overlay z-30" />
         ) : (

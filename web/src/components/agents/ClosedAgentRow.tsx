@@ -33,7 +33,7 @@ export function ClosedAgentRow({ entry, onError }: {
         navigate(`/s/${entry.provider}/${entry.sessionId}${isRemoteHost(entry.host) ? `?host=${entry.host}` : ''}`)}
       className={`group flex items-center gap-3.5 px-4 py-3 hover:bg-surface2 ${resumable ? 'cursor-pointer' : ''}`}
     >
-      <span className={`-mr-1.5 w-2 shrink-0 select-none text-[12px] font-bold text-transparent ${resumable ? 'group-hover:text-claude' : ''}`}>❯</span>
+      <span className={`g-prompt -mr-1.5 w-2 shrink-0 select-none text-[12px] font-bold text-transparent ${resumable ? 'group-hover:text-claude' : ''}`} />
       <span
         className="h-2 w-2 shrink-0 rounded-full opacity-60"
         style={{ backgroundColor: dotColor }}
@@ -43,7 +43,7 @@ export function ClosedAgentRow({ entry, onError }: {
         <div className="flex items-center gap-2 truncate text-[14px] font-medium text-ink">
           {label}
           {isRemoteHost(entry.host) && (
-            <span className="shrink-0 rounded-sm border border-edge bg-surface2 px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-mut">
+            <span className="shrink-0 rounded-sm border border-edge bg-surface2 px-1 py-px font-body text-[9px] font-semibold uppercase tracking-[0.08em] text-mut">
               {entry.host}
             </span>
           )}
@@ -62,7 +62,7 @@ export function ClosedAgentRow({ entry, onError }: {
                 title={`${entry.conversationTitle ? `chat “${entry.conversationTitle}” — ` : ''}click to copy id · manual resume (from the directory above): ${
                   entry.provider === 'codex' ? `codex resume ${entry.sessionId}` : `claude --resume ${entry.sessionId}`
                 }`}
-                className="font-mono hover:text-ink"
+                className="font-body hover:text-ink"
               >
                 {copied ? 'id copied' : entry.sessionId}
               </button>

@@ -95,7 +95,7 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
             className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-surface2"
           >
             <AgentStatusDot status={a.status} />
-            <span className="truncate font-mono text-[12px]">{agentLabel(a, agents)}</span>
+            <span className="truncate font-body text-[12px]">{agentLabel(a, agents)}</span>
             {isRemoteHost(a.host) && (
               <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-[0.08em] text-faint">
                 {hostOf(a)}

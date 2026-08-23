@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalSocketUrl } from '../../lib/ws';
-import { subscribeTheme, xtermTheme } from '../../lib/themes';
+import { subscribeTheme, terminalFontFamily, terminalFontSize, xtermTheme } from '../../lib/themes';
 import { isDoneFlashMuted } from '../../lib/useDoneFlash';
 
 type ConnState = 'connecting' | 'open' | 'reconnecting' | 'ended';
@@ -16,8 +16,8 @@ export function XtermPane({ name }: { name: string }) {
     if (!host) return;
 
     const term = new Terminal({
-      fontFamily: 'JetBrains Mono, Menlo, monospace',
-      fontSize: 13,
+      fontFamily: terminalFontFamily(),
+      fontSize: terminalFontSize(),
       lineHeight: 1.25,
       fontWeightBold: '600',
       theme: xtermTheme(),
@@ -26,6 +26,24 @@ export function XtermPane({ name }: { name: string }) {
     });
     const unsubTheme = subscribeTheme(() => {
       term.options.theme = xtermTheme();
+      // styles may retheme the terminal font (palette hops never do). Load
+      // the face first so xterm never measures fallback glyphs, then refit —
+      // all in place: the terminal and its WebSocket are untouched.
+      const fam = terminalFontFamily();
+      const size = terminalFontSize();
+      if (term.options.fontFamily !== fam || term.options.fontSize !== size) {
+        document.fonts.load(`${size}px ${fam}`).catch(() => undefined).then(() => {
+          if (disposed) return;
+          term.options.fontFamily = fam;
+          term.options.fontSize = size;
+          fit.fit();
+          // the refit changes cols/rows without a container resize, so the
+          // ResizeObserver won't tell the PTY — do it here
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        });
+      }
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

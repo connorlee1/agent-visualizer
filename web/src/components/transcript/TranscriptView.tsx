@@ -229,7 +229,7 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
                   <div className="flex flex-wrap items-center gap-1.5 pl-1">
                     <button
                       onClick={toggle}
-                      className="flex items-center gap-1.5 font-mono text-[11px] text-[color:var(--ansi-blue)] opacity-75 hover:opacity-100"
+                      className="flex items-center gap-1.5 font-body text-[11px] text-[color:var(--ansi-blue)] opacity-75 hover:opacity-100"
                     >
                       <Wrench size={10} />
                       {item.count} step{item.count === 1 ? '' : 's'} {open ? '▾' : '▸'}
@@ -239,13 +239,13 @@ export function TranscriptView({ messages, provider, live = false, hasEarlier = 
                         key={p}
                         onClick={() => setViewFile(p)}
                         title={p}
-                        className="rounded border border-edge bg-surface2 px-1.5 py-px font-mono text-[10px] text-mut hover:text-ink"
+                        className="rounded border border-edge bg-surface2 px-1.5 py-px font-body text-[10px] text-mut hover:text-ink"
                       >
                         {p.split('/').pop()}
                       </button>
                     ))}
                     {files.length > 8 && (
-                      <button onClick={toggle} className="font-mono text-[10px] text-faint hover:text-ink">
+                      <button onClick={toggle} className="font-body text-[10px] text-faint hover:text-ink">
                         +{files.length - 8} more
                       </button>
                     )}

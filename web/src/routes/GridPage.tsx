@@ -178,7 +178,7 @@ export function GridPage() {
                 key={d}
                 onClick={() => toggleDir(d)}
                 title={d || 'no directory'}
-                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors ${
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-body text-[11px] transition-colors ${
                   active ? 'text-ink' : 'text-mut hover:text-ink'
                 }`}
                 style={{

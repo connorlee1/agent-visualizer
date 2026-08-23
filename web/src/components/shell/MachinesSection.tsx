@@ -78,7 +78,7 @@ function AddMachineModal({ open, onClose }: { open: boolean; onClose: () => void
             value={ssh}
             onChange={(e) => setSsh(e.target.value)}
             placeholder="ssh root@203.0.113.7 -p 22023 -i ~/.ssh/id_ed25519"
-            className={`${inputClass} font-mono`}
+            className={`${inputClass} font-body`}
           />
         </label>
         <div className="text-[11px] leading-snug text-faint">
@@ -127,7 +127,7 @@ export function MachinesSection() {
   return (
     <div className="mt-6 px-3">
       <div className="flex items-center px-3 pb-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-faint">Machines</span>
+        <span className="font-body text-[10px] font-semibold uppercase tracking-widest text-faint">Machines</span>
         <button
           onClick={() => setAdding(true)}
           title="add a machine over ssh"
@@ -137,7 +137,7 @@ export function MachinesSection() {
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2.5 rounded-md px-3 py-1.5 font-mono text-[12px] text-mut">
+        <div className="flex items-center gap-2.5 rounded-md px-3 py-1.5 font-body text-[12px] text-mut">
           <Laptop size={13} className="shrink-0 text-faint" />
           <span className="truncate">this mac</span>
           <span className="ml-auto text-[11px] text-faint">{countFor('local')}</span>
@@ -145,7 +145,7 @@ export function MachinesSection() {
         {(hosts ?? []).map((h: HostInfo) => (
           <div
             key={h.id}
-            className="group flex items-center gap-2.5 rounded-md px-3 py-1.5 font-mono text-[12px] text-mut hover:bg-surface2"
+            className="group flex items-center gap-2.5 rounded-md px-3 py-1.5 font-body text-[12px] text-mut hover:bg-surface2"
             title={h.status === 'connected' ? h.ssh ?? h.url : `${h.status}${h.lastError ? ` — ${h.lastError}` : ''}`}
           >
             <Server size={13} className="shrink-0 text-faint" />

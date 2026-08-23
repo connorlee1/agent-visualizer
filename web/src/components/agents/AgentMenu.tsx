@@ -22,7 +22,7 @@ function MenuRow({ label, value, hint, onClick }: {
       className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-surface2"
     >
       <span className="text-[9px] font-semibold uppercase tracking-widest text-faint">{label}</span>
-      <span className="w-full truncate font-mono text-[11px] text-mut">{value}</span>
+      <span className="w-full truncate font-body text-[11px] text-mut">{value}</span>
     </button>
   );
 }

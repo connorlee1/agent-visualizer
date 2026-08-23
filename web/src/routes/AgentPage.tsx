@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Columns2, SquareTerminal, X } from 'lucide-react';
 import { useAgents, useKillAgent } from '../queries';
-import { STATUS_COLOR, STATUS_GLYPH, STATUS_SHORT } from '../lib/status';
+import { STATUS_COLOR, STATUS_SHORT } from '../lib/status';
 import { agentLabel, basename } from '../lib/format';
 import { altLabel } from '../lib/keys';
 import { useHiddenAgents } from '../lib/hiddenAgents';
@@ -128,10 +128,10 @@ export function AgentPage() {
   const frameActions = (
     <>
       <span
-        className="mr-1 hidden font-mono text-[10px] font-semibold uppercase tracking-[0.14em] sm:inline"
+        className="mr-1 hidden font-body text-[10px] font-semibold uppercase tracking-[0.14em] sm:inline"
         style={{ color: STATUS_COLOR[agent.status] }}
       >
-        {STATUS_GLYPH[agent.status]} {STATUS_SHORT[agent.status]}
+        <span className="g-status" data-st={agent.status} /> {STATUS_SHORT[agent.status]}
         {agent.status === 'working' && <WorkingTimer name={agentRef} />}
       </span>
       {hasChat && (
@@ -263,7 +263,7 @@ export function AgentPage() {
             key={refOf(a)}
             to={`/agents/${encodeURIComponent(refOf(a))}`}
             className={({ isActive }) =>
-              `flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 font-mono text-[12px] ${
+              `flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 font-body text-[12px] ${
                 isActive ? 'border-edge bg-bg text-ink' : 'border-transparent text-mut hover:text-ink'
               }`
             }

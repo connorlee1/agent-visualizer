@@ -180,7 +180,7 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
             value={customPath}
             onChange={(e) => setCustomPath(e.target.value)}
             placeholder="~/Desktop/my-project"
-            className={`${inputClass} font-mono`}
+            className={`${inputClass} font-body`}
           />
         )}
 
@@ -192,7 +192,7 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
               onChange={(e) => setModel(e.target.value)}
               placeholder="default"
               list={provider === 'claude' ? 'claude-models' : undefined}
-              className={`${inputClass} font-mono`}
+              className={`${inputClass} font-body`}
             />
             <datalist id="claude-models">
               <option value="opus" />
