@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CODEX_SESSIONS_DIR } from '../config';
 import type { ContentBlock, Message, SessionSummary } from '../../shared/types';
 import { capText, readHeadLines, readTailLines, safeIso, streamLinesFrom } from './parse';
+import type { WindowedMessages } from './codexdb';
 
 interface CacheEntry {
   mtimeMs: number;
@@ -196,21 +197,28 @@ export async function listCodexSessions(): Promise<SessionSummary[]> {
 // paginated thread, but the rollout files sit still between page flushes —
 // re-streaming them per chat poll (a campaign session's group is 281MB,
 // measured ~15s) stacked requests faster than the 3s poll drained them.
-const rolloutParseCache = new Map<string, { fp: string; messages: Message[] }>();
+const rolloutParseCache = new Map<string, { fp: string; result: WindowedMessages }>();
 const ROLLOUT_PARSE_MAX = 24;
+// Group-level retained tail — same reasoning as the db window: chats render
+// the tail, the reader pages a few screens; nobody needs 56k parsed messages
+// resident. The true total still comes back for honest counts and paging.
+const GROUP_WINDOW = 2000;
 
-async function parseRolloutGroup(sessionId: string, list: string[]): Promise<Message[]> {
+async function parseRolloutGroup(sessionId: string, list: string[]): Promise<WindowedMessages> {
   const stats = await Promise.all(list.map((f) => fs.stat(f).catch(() => null)));
   const fp = list.map((f, i) => `${f}:${stats[i]?.size ?? 0}:${stats[i]?.mtimeMs ?? 0}`).join('|');
   const cached = rolloutParseCache.get(sessionId);
   if (cached && cached.fp === fp) {
     rolloutParseCache.delete(sessionId); // refresh LRU position
     rolloutParseCache.set(sessionId, cached);
-    return cached.messages;
+    return cached.result;
   }
   const out: Message[] = [];
+  let total = 0;
   for (let i = 0; i < list.length; i++) {
-    out.push(...await parseCodexFile(list[i], `F${i}`));
+    const file = await parseCodexFile(list[i], `F${i}`);
+    total += file.total;
+    out.push(...file.messages);
   }
   if (list.length > 1) {
     out.sort((a, b) => {
@@ -218,14 +226,33 @@ async function parseRolloutGroup(sessionId: string, list: string[]): Promise<Mes
       return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
     });
   }
-  rolloutParseCache.set(sessionId, { fp, messages: out });
+  const result: WindowedMessages = {
+    messages: out.length > GROUP_WINDOW ? out.slice(out.length - GROUP_WINDOW) : out,
+    total,
+  };
+  // Release everything older than the window from per-file residency. Safe
+  // because trimming happens AFTER the merged sort (never before — a
+  // pre-sort per-file trim thins the middle of the timeline and corrupts
+  // the window start, caught by differential test), and because the window
+  // boundary only ever moves forward: a dropped-older message can never
+  // re-enter the tail. Counts (state.total) keep the true totals.
+  const startTs = result.messages[0]?.timestamp;
+  if (total > result.messages.length && startTs) {
+    for (const f of list) {
+      const st = rolloutFileCache.get(f);
+      if (st && st.messages.length) {
+        st.messages = st.messages.filter((m) => !m.timestamp || m.timestamp >= startTs);
+      }
+    }
+  }
+  rolloutParseCache.set(sessionId, { fp, result });
   while (rolloutParseCache.size > ROLLOUT_PARSE_MAX) {
     rolloutParseCache.delete(rolloutParseCache.keys().next().value as string);
   }
-  return out;
+  return result;
 }
 
-export async function parseCodexSessionTranscript(session: SessionSummary): Promise<Message[]> {
+export async function parseCodexSessionTranscript(session: SessionSummary): Promise<WindowedMessages> {
   // paginated codex (0.147+) streams items to sqlite and only page-flushes
   // the rollout — prefer the db whenever it has at least as much history
   const { codexDbTranscript } = await import('./codexdb');
@@ -233,7 +260,7 @@ export async function parseCodexSessionTranscript(session: SessionSummary): Prom
   const files = getCodexSessionFiles(session.id);
   const list = files.length ? files : [session.filePath];
   const out = await parseRolloutGroup(session.id, list);
-  if (fromDb && fromDb.length >= out.filter((m) => m.role !== 'system').length) return fromDb;
+  if (fromDb && fromDb.total >= out.total) return fromDb;
   return out;
 }
 
@@ -249,36 +276,40 @@ interface RolloutFileState {
   bytes: number;
   lineNo: number;
   messages: Message[];
+  /** ALL messages this file ever produced — messages holds only the tail. */
+  total: number;
 }
 const rolloutFileCache = new Map<string, RolloutFileState>();
 // Sized for the WORST real group sum, not a guess: two live campaign groups
 // measured 148 files / 1.1GB — a cap below the working set means permanent
 // eviction thrash, i.e. re-streaming the gigabyte on every page flush.
-// capText bounds what each parsed file retains, so memory stays sane.
 const ROLLOUT_FILE_MAX = 512;
 
-async function parseCodexFile(filePath: string, idPrefix: string): Promise<Message[]> {
+async function parseCodexFile(filePath: string, idPrefix: string): Promise<{ messages: Message[]; total: number }> {
   const stat = await fs.stat(filePath).catch(() => null);
-  if (!stat) return rolloutFileCache.get(filePath)?.messages ?? [];
-  let st = rolloutFileCache.get(filePath);
-  if (!st || stat.size < st.bytes) st = { bytes: 0, lineNo: 0, messages: [] };
+  const existing = rolloutFileCache.get(filePath);
+  if (!stat) return { messages: existing?.messages ?? [], total: existing?.total ?? 0 };
+  let st = existing;
+  if (!st || stat.size < st.bytes) st = { bytes: 0, lineNo: 0, messages: [], total: 0 };
   const state = st;
   rolloutFileCache.delete(filePath);
   rolloutFileCache.set(filePath, state);
   while (rolloutFileCache.size > ROLLOUT_FILE_MAX) {
     rolloutFileCache.delete(rolloutFileCache.keys().next().value as string);
   }
-  if (stat.size <= state.bytes) return state.messages;
+  if (stat.size <= state.bytes) return { messages: state.messages, total: state.total };
 
   const messages = state.messages;
   const push = (role: Message['role'], content: ContentBlock[], timestamp?: string) => {
-    if (content.length) messages.push({ id: `${idPrefix}L${state.lineNo}`, role, timestamp, content });
+    if (content.length) {
+      messages.push({ id: `${idPrefix}L${lineNo}`, role, timestamp, content });
+      state.total++;
+    }
   };
-  let lineNo = state.lineNo; // eslint-disable-line prefer-const -- mirrors pre-incremental shape below
+  let lineNo = state.lineNo;
 
   state.bytes += await streamLinesFrom(filePath, state.bytes, (rec) => {
     lineNo = ++state.lineNo;
-    lineNo++;
     if (rec?.type !== 'response_item' || !rec.payload) return;
     const p = rec.payload;
     switch (p.type) {
@@ -322,5 +353,5 @@ async function parseCodexFile(filePath: string, idPrefix: string): Promise<Messa
       }
     }
   });
-  return messages;
+  return { messages, total: state.total };
 }

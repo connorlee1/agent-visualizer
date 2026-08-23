@@ -110,9 +110,15 @@ interface ThreadTranscript {
   lastMs: number;
   lastRowid: number;
   messages: Message[];
+  /** ALL messages ever ingested — messages holds only the retained tail. */
+  total: number;
 }
 const threadTranscripts = new Map<string, ThreadTranscript>();
 const THREAD_TRANSCRIPTS_MAX = 12;
+// Retained tail per thread. Neither the agent nor the dashboard needs a
+// 26k-message thread in memory — chats render the tail and the reader pages
+// only a few screens back; holding everything measured ~450MB RSS.
+const THREAD_WINDOW = 2000;
 
 function ingestRows(
   state: ThreadTranscript,
@@ -120,14 +126,27 @@ function ingestRows(
 ): void {
   for (const row of rows) {
     const m = itemToMessage(row.item_json, row.created_at_ms);
-    if (m) state.messages.push(m);
+    if (m) {
+      state.messages.push(m);
+      state.total++;
+    }
     state.lastMs = row.created_at_ms;
     state.lastRowid = row.rowid;
   }
+  if (state.messages.length > THREAD_WINDOW) {
+    state.messages.splice(0, state.messages.length - THREAD_WINDOW);
+  }
 }
 
-/** Full transcript for a thread from the codex db, newest MAX_ITEMS. */
-export async function codexDbTranscript(threadId: string): Promise<Message[] | null> {
+export interface WindowedMessages {
+  /** The retained tail (everything for short threads). */
+  messages: Message[];
+  /** Full main-path count — paging floors at total - messages.length. */
+  total: number;
+}
+
+/** Transcript tail for a thread from the codex db (window + true total). */
+export async function codexDbTranscript(threadId: string): Promise<WindowedMessages | null> {
   if (!UUID_RE.test(threadId)) return null;
   const id = threadId.toLowerCase();
   let state = threadTranscripts.get(id);
@@ -137,7 +156,7 @@ export async function codexDbTranscript(threadId: string): Promise<Message[] | n
     );
     if (!rows || rows.length === 0) return null;
     rows.reverse();
-    state = { lastMs: 0, lastRowid: 0, messages: [] };
+    state = { lastMs: 0, lastRowid: 0, messages: [], total: 0 };
     ingestRows(state, rows);
   } else {
     // seek on rowid (the table's PK) rather than filter on thread_id:
@@ -158,7 +177,7 @@ export async function codexDbTranscript(threadId: string): Promise<Message[] | n
   }
   // callers cache the returned array by fingerprint — hand out a copy so the
   // next incremental append can't mutate what they already stored
-  return state.messages.slice();
+  return { messages: state.messages.slice(), total: state.total };
 }
 
 export interface CodexDbState {

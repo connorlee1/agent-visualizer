@@ -81,7 +81,7 @@ export async function findSession(provider: Provider, id: string): Promise<Sessi
 
 // Parsed transcripts are big (a 6.8MB JSONL becomes tens of MB of objects) — keep few.
 const TRANSCRIPT_LRU_MAX = 24; // must exceed open-chat working set or every poll reparses
-const transcriptCache = new Map<string, { mtimeMs: number; size: number; messages: Message[] }>();
+const transcriptCache = new Map<string, { mtimeMs: number; size: number; messages: Message[]; total: number }>();
 
 /**
  * Cache-validity fingerprint. A codex conversation can span several rollout
@@ -112,28 +112,38 @@ async function transcriptStat(summary: SessionSummary): Promise<{ mtimeMs: numbe
 // One parse per file no matter how many polls stack up: a slow parse used to
 // run once per concurrent request, with new requests arriving faster than the
 // old ones finished — the backlog is what turned "slow" into "hung".
-const parseInFlight = new Map<string, Promise<Message[]>>();
+interface ParsedTranscript {
+  /** Retained window (whole transcript except for very long codex threads). */
+  messages: Message[];
+  /** True main-path count; paging floors at total - messages.length. */
+  total: number;
+}
+const parseInFlight = new Map<string, Promise<ParsedTranscript>>();
 
-async function parseTranscript(summary: SessionSummary): Promise<Message[]> {
+async function parseTranscript(summary: SessionSummary): Promise<ParsedTranscript> {
   const stat = await transcriptStat(summary);
   const cached = transcriptCache.get(summary.filePath);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
     transcriptCache.delete(summary.filePath); // refresh LRU position
     transcriptCache.set(summary.filePath, cached);
-    return cached.messages;
+    return cached;
   }
   const inflight = parseInFlight.get(summary.filePath);
   if (inflight) return inflight;
   const job = (async () => {
-    const messages = summary.provider === 'claude'
-      ? await parseClaudeTranscript(summary.filePath)
-      : await parseCodexSessionTranscript(summary);
-    transcriptCache.set(summary.filePath, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
+    let parsed: ParsedTranscript;
+    if (summary.provider === 'claude') {
+      const messages = await parseClaudeTranscript(summary.filePath);
+      parsed = { messages, total: messages.length };
+    } else {
+      parsed = await parseCodexSessionTranscript(summary);
+    }
+    transcriptCache.set(summary.filePath, { mtimeMs: stat.mtimeMs, size: stat.size, ...parsed });
     while (transcriptCache.size > TRANSCRIPT_LRU_MAX) {
       const oldest = transcriptCache.keys().next().value as string;
       transcriptCache.delete(oldest);
     }
-    return messages;
+    return parsed;
   })();
   parseInFlight.set(summary.filePath, job);
   try {
@@ -150,22 +160,26 @@ export async function getTranscript(
 ): Promise<TranscriptResponse | undefined> {
   const summary = await findSession(provider, id);
   if (!summary) return undefined;
-  const all = await parseTranscript(summary);
-  const total = all.length;
+  const { messages: window, total } = await parseTranscript(summary);
+  // indices below are in FULL-transcript coordinates; the retained window
+  // covers [floor, total) and paging clamps there (earliestAvailable tells
+  // the reader where "show earlier" honestly ends)
+  const floor = total - window.length;
   let start: number;
   let end: number;
   if (opts.offset != null) {
-    start = Math.max(0, Math.min(opts.offset, total));
+    start = Math.max(floor, Math.min(opts.offset, total));
     end = Math.min(total, start + (opts.limit ?? 200));
   } else {
-    start = Math.max(0, total - (opts.tail ?? 200));
+    start = Math.max(floor, total - (opts.tail ?? 200));
     end = total;
   }
   return {
     session: { ...summary, messageCount: total },
-    messages: all.slice(start, end),
+    messages: window.slice(start - floor, end - floor),
     total,
     offset: start,
+    earliestAvailable: floor > 0 ? floor : undefined,
   };
 }
 

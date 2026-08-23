@@ -56,6 +56,9 @@ export function SessionPage() {
   const data = query.data;
   const session = data?.session;
   const earliestOffset = (data?.offset ?? 0) - earlier.length;
+  // very long codex threads retain only a window server-side — paging
+  // honestly bottoms out there instead of looping on the same slice
+  const pagingFloor = data?.earliestAvailable ?? 0;
   const messages = useMemo(
     () => dedupeById([...earlier, ...(data?.messages ?? [])]),
     [earlier, data],
@@ -67,11 +70,11 @@ export function SessionPage() {
 
   const loadingRef = useRef(false);
   const loadEarlier = async () => {
-    if (!data || earliestOffset <= 0 || loadingRef.current) return;
+    if (!data || earliestOffset <= pagingFloor || loadingRef.current) return;
     loadingRef.current = true;
     setLoadingEarlier(true);
     try {
-      const start = Math.max(0, earliestOffset - 100);
+      const start = Math.max(pagingFloor, earliestOffset - 100);
       const res = await fetchTranscript(provider, sessionId, {
         offset: start,
         limit: earliestOffset - start,
@@ -180,7 +183,7 @@ export function SessionPage() {
           messages={messages}
           provider={provider}
           host={host}
-          hasEarlier={earliestOffset > 0}
+          hasEarlier={earliestOffset > pagingFloor}
           onLoadEarlier={() => void loadEarlier()}
           loadingEarlier={loadingEarlier}
           forceToolsOpen={expandTools}

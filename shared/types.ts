@@ -171,6 +171,12 @@ export interface TranscriptResponse {
   total: number;
   /** Index into the full path of messages[0]. */
   offset: number;
+  /**
+   * Earliest offset the server can page back to. Very long codex threads
+   * retain only a recent window in memory (the tail is all the UI renders);
+   * "show earlier" bottoms out here instead of at 0.
+   */
+  earliestAvailable?: number;
 }
 
 export interface LaunchAgentRequest {
