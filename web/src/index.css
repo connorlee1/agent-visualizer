@@ -109,6 +109,9 @@ body {
   /* styles with small-x-height faces normalize their visual size here
      (lib/styles.ts fonts.adjust) instead of resizing every text-[*] class */
   font-size-adjust: var(--font-adjust, none);
+  /* pixel fonts squash fi/fl into one cell — styles turn ligatures off via
+     fonts.ligatures (inherits everywhere, terminals render their own glyphs) */
+  font-variant-ligatures: var(--font-liga, normal);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }

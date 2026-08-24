@@ -372,6 +372,7 @@ export function applyStyle(id: string): void {
   set('--font-display', style.fonts.display);
   set('--font-body', style.fonts.body);
   set('--font-adjust', style.fonts.adjust ?? 'none');
+  set('--font-liga', style.fonts.ligatures ? 'normal' : 'none');
   set('--radius-chip', style.radius.chip);
   set('--radius-pane', style.radius.pane);
   set('--radius-panel', style.radius.panel);

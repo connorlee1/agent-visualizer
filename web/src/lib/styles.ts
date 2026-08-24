@@ -36,6 +36,10 @@ export interface Style {
     /** xterm font size (null = the default 13). The canvas renderer can't
      *  use font-size-adjust, so small faces compensate here instead. */
     terminalSize: number | null;
+    /** false disables ligatures in body text. Pixel fonts like VT323 ship
+     *  fi/fl ligatures that squash two letters into one cell — "filename"
+     *  renders as a mashed blob — so bitmap-style fonts want this off. */
+    ligatures: boolean;
     /** CSS font-size-adjust for body text (null = none). Small-x-height
      *  faces (VT323, the serifs) render unreadably small at the app's
      *  10–13px sizes; this normalizes their visual size to the mono
@@ -77,7 +81,7 @@ export const STYLES: Record<string, Style> = {
     id: 'console',
     name: 'Console',
     tagline: 'the factory skin — tight radii, mono everywhere',
-    fonts: { display: MONO, body: MONO, terminal: null, terminalSize: null, adjust: null },
+    fonts: { display: MONO, body: MONO, terminal: null, terminalSize: null, ligatures: true, adjust: null },
     radius: { chip: '4px', pane: '5px', panel: '12px' },
     border: { width: '1px', style: 'solid' },
     glyphs: {
@@ -98,6 +102,7 @@ export const STYLES: Record<string, Style> = {
       body: `'VT323', ${MONO}`,
       terminal: `VT323, JetBrains Mono, Menlo, monospace`,
       terminalSize: 16,
+      ligatures: false,
       adjust: '0.54',
     },
     radius: { chip: '0px', pane: '0px', panel: '0px' },
@@ -113,7 +118,7 @@ export const STYLES: Record<string, Style> = {
     id: 'neon',
     name: 'Neon',
     tagline: 'tinted halos on everything, a grid on the horizon',
-    fonts: { display: MONO, body: MONO, terminal: null, terminalSize: null, adjust: null },
+    fonts: { display: MONO, body: MONO, terminal: null, terminalSize: null, ligatures: true, adjust: null },
     radius: { chip: '1px', pane: '2px', panel: '4px' },
     border: { width: '1px', style: 'solid' },
     glyphs: {
@@ -132,6 +137,7 @@ export const STYLES: Record<string, Style> = {
       body: `'Palatino', 'Iowan Old Style', Georgia, serif`,
       terminal: null,
       terminalSize: null,
+      ligatures: true,
       adjust: '0.5',
     },
     radius: { chip: '2px', pane: '3px', panel: '6px' },
@@ -152,6 +158,7 @@ export const STYLES: Record<string, Style> = {
       body: `'Iowan Old Style', 'Palatino', Georgia, serif`,
       terminal: null,
       terminalSize: null,
+      ligatures: true,
       adjust: '0.5',
     },
     radius: { chip: '8px', pane: '10px', panel: '16px' },
