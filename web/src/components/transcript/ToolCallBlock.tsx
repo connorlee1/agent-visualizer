@@ -2,6 +2,7 @@ import { useContext, useEffect, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import type { ContentBlock } from '@shared/types';
 import { shortPath, truncate } from '../../lib/format';
+import { filePathOf } from '../../lib/filePaths';
 import { OpenFileContext } from './FileOverlay';
 
 type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>;
@@ -19,16 +20,6 @@ function summarizeInput(input: unknown): string {
   if (typeof input === 'string') return truncate(input, 90);
   const json = input == null ? '' : JSON.stringify(input);
   return json === '{}' ? '' : truncate(json, 90);
-}
-
-/** The tool call's target file, openable in the in-pane viewer. */
-export function filePathOf(input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null;
-  const o = input as Record<string, unknown>;
-  for (const key of ['file_path', 'path', 'notebook_path']) {
-    if (typeof o[key] === 'string') return o[key] as string;
-  }
-  return null;
 }
 
 export function ToolCallBlock({ name, input, result, forceOpen }: {

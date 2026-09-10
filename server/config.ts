@@ -18,6 +18,8 @@ export const CODEX_NOTIFY_SCRIPT = path.join(HOME, '.agent-visualizer', 'codex-n
 export const HOOK_SIGNALS_FILE = path.join(HOME, '.agent-visualizer', 'hook-signals.json');
 /** cwd for headless `claude -p` summarizer calls — its transcripts are filtered out of session listings. */
 export const SUMMARIZER_CWD = path.join(HOME, '.agent-visualizer', 'summarizer');
+/** Images dropped into a composer, one subdirectory per agent. */
+export const UPLOADS_DIR = path.join(HOME, '.agent-visualizer', 'uploads');
 export const IDLE_SUMMARIES_FILE = path.join(HOME, '.agent-visualizer', 'idle-summaries.json');
 /** Remote machines registry (env override keeps tests off the real file). */
 export const HOSTS_FILE = process.env.HOSTS_FILE || path.join(HOME, '.agent-visualizer', 'hosts.json');

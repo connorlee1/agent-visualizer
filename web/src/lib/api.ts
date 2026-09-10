@@ -146,6 +146,20 @@ export const sendAgentInput = (ref: string, input: { text?: string; key?: string
   });
 };
 
+/**
+ * Store an image dropped into the composer, on the agent's own machine.
+ * Returns the saved path, which goes into the prompt — that's how both CLIs
+ * take an image.
+ */
+export const uploadAgentImage = async (ref: string, file: File): Promise<string> => {
+  const { host, name } = parseRef(ref);
+  const { path } = await request<{ path: string }>(
+    `${apiBase(host)}/tmux/${encodeURIComponent(name)}/upload`,
+    { method: 'POST', headers: { 'Content-Type': file.type }, body: file },
+  );
+  return path;
+};
+
 /** Switch permission/plan mode by cycling shift+tab in the agent's pane. */
 export const setAgentMode = (ref: string, mode: string) => {
   const { host, name } = parseRef(ref);

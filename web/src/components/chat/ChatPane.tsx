@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ListTree, SendHorizonal } from 'lucide-react';
+import { ImagePlus, ListTree, SendHorizonal, X } from 'lucide-react';
 import type { Message } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
 import { useHosts, useTranscript } from '../../queries';
-import { sendAgentInput } from '../../lib/api';
+import { sendAgentInput, uploadAgentImage } from '../../lib/api';
 import { hostOf, isRemoteHost, refOf } from '../../lib/agentRef';
 import { parseApprovalDialog } from '../../lib/approval';
 import { altLabel } from '../../lib/keys';
@@ -40,6 +40,12 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
   }, [agentRef]);
   const [pending, setPending] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  // images dropped/pasted into the composer, already saved on the agent's
+  // machine; their paths are prepended to the message on send
+  const [attached, setAttached] = useState<{ path: string; url: string; name: string }[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showSteps, setShowSteps] = useState(() => localStorage.getItem('chatSteps') === '1');
   const toggleSteps = () => {
     setShowSteps((v) => {
@@ -79,16 +85,51 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
     [messages, pending],
   );
 
+  /** Save dropped/pasted/picked images and attach them to the next message. */
+  const attachFiles = async (files: File[]) => {
+    const images = files.filter((f) => f.type.startsWith('image/'));
+    if (!images.length) {
+      if (files.length) setSendError('only images can be attached');
+      return;
+    }
+    setSendError(null);
+    setUploading((n) => n + images.length);
+    await Promise.all(
+      images.map(async (file) => {
+        try {
+          const path = await uploadAgentImage(agentRef, file);
+          setAttached((a) => [...a, { path, url: URL.createObjectURL(file), name: file.name || 'image' }]);
+        } catch (err) {
+          setSendError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setUploading((n) => n - 1);
+        }
+      }),
+    );
+  };
+
+  const removeAttachment = (path: string) =>
+    setAttached((a) => {
+      const gone = a.find((x) => x.path === path);
+      if (gone) URL.revokeObjectURL(gone.url);
+      return a.filter((x) => x.path !== path);
+    });
+
   const send = async () => {
     const text = draft.trim();
-    if (!text) return;
+    // an image on its own is a valid message — the CLI reads the path
+    if (!text && !attached.length) return;
+    // paths first so the CLI resolves them before reading the instruction
+    const body = [...attached.map((a) => a.path), text].filter(Boolean).join(' ');
     setDraft('');
+    attached.forEach((a) => URL.revokeObjectURL(a.url));
+    setAttached([]);
     // slash commands run in the TUI without producing a user message,
     // so an optimistic bubble would just linger
-    setPending(text.startsWith('/') ? null : text);
+    setPending(body.startsWith('/') ? null : body);
     setSendError(null);
     try {
-      await sendAgentInput(agentRef, { text });
+      await sendAgentInput(agentRef, { text: body });
     } catch (err) {
       setPending(null);
       setDraft(text);
@@ -165,7 +206,34 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
     Date.now() - new Date(agent.createdAt).getTime() > 15_000;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" onKeyDown={forwardDialogKeys}>
+    <div
+      className="relative flex h-full min-h-0 flex-col"
+      onKeyDown={forwardDialogKeys}
+      // dragenter/over must both preventDefault or the browser navigates to the file
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // only when the pointer truly leaves the pane, not on inner-element churn
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragging(false);
+        void attachFiles([...e.dataTransfer.files]);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-claude bg-bg/85">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-claude">
+            <ImagePlus size={16} /> drop image to attach
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1">
         {needsTerminal ? (
           <div className="flex h-full items-center justify-center p-6">
@@ -280,6 +348,31 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             </button>
           )}
           {sendError && <div className="mb-1.5 text-[12px] text-red-400">{sendError}</div>}
+          {(attached.length > 0 || uploading > 0) && (
+            <div className="mb-1.5 flex shrink-0 flex-wrap items-center gap-1.5">
+              {attached.map((a) => (
+                <div
+                  key={a.path}
+                  title={a.path}
+                  className="group relative h-14 w-14 overflow-hidden rounded-(--radius-chip) border border-edge bg-bg"
+                >
+                  <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                  <button
+                    onClick={() => removeAttachment(a.path)}
+                    title="remove"
+                    className="absolute right-0 top-0 rounded-bl bg-bg/80 p-0.5 text-mut opacity-0 group-hover:opacity-100 hover:text-ink"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+              {uploading > 0 && (
+                <div className="flex h-14 w-14 items-center justify-center rounded-(--radius-chip) border border-dashed border-edge text-[10px] text-faint">
+                  saving…
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex shrink-0 items-end gap-2">
             <div className="relative min-w-0 flex-1">
               <span className="g-prompt pointer-events-none absolute left-3 top-[7px] select-none font-body text-[13px] font-bold text-claude" />
@@ -293,11 +386,36 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
                     void send();
                   }
                 }}
+                onPaste={(e) => {
+                  // screenshots arrive as clipboard files; let normal text paste through
+                  const files = [...e.clipboardData.files];
+                  if (!files.length) return;
+                  e.preventDefault();
+                  void attachFiles(files);
+                }}
                 rows={1}
                 placeholder={`message ${agent.cwd ? basename(agent.cwd) : agent.name}…`}
                 className="max-h-[40vh] w-full resize-none overflow-y-auto rounded-(--radius-chip) border border-edge bg-bg py-2 pl-8 pr-3 font-body text-[12.5px] leading-relaxed outline-none placeholder:text-faint focus:border-faint"
               />
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                void attachFiles([...(e.target.files ?? [])]);
+                e.target.value = ''; // let the same file be picked again
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-(--radius-chip) border border-edge p-2.5 text-faint hover:text-mut"
+              title="attach an image (or drop / paste one)"
+            >
+              <ImagePlus size={15} />
+            </button>
             <button
               onClick={toggleSteps}
               className={`rounded-(--radius-chip) border p-2.5 ${
@@ -309,7 +427,7 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
             </button>
             <button
               onClick={() => void send()}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() && !attached.length}
               className="rounded-(--radius-chip) bg-claude/90 p-2.5 text-on-accent hover:bg-claude disabled:opacity-40"
               title="send (Enter)"
             >

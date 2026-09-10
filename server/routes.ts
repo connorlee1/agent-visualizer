@@ -1,7 +1,9 @@
 import os from 'node:os';
+import path from 'node:path';
 import fs from 'node:fs/promises';
-import { Router } from 'express';
-import { INSTANCE_ID } from './config';
+import { randomUUID } from 'node:crypto';
+import express, { Router } from 'express';
+import { INSTANCE_ID, UPLOADS_DIR } from './config';
 import type { AddHostRequest, ClosedAgent, LaunchAgentRequest, TmuxAgent } from '../shared/types';
 import { LOCAL_HOST } from '../shared/types';
 import { sseHandler, broadcast, hasClients } from './events';
@@ -230,6 +232,44 @@ router.get('/file/raw', asyncRoute(async (req, res) => {
   if (!(await statViewableFile(path, res, 20_000_000))) return;
   res.set('Content-Type', type);
   res.send(await fs.readFile(path));
+}));
+
+/**
+ * Images dropped into an agent's composer. Both CLIs read an image when the
+ * prompt names its path, so the drop is stored as a real file and the caller
+ * gets the path back to put in the message. Files land beside the dashboard's
+ * own state (never in the user's repo), keyed by agent so they stay findable.
+ */
+const UPLOAD_EXT: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
+  'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/bmp': 'bmp',
+};
+
+router.post('/tmux/:name/upload', express.raw({ type: Object.keys(UPLOAD_EXT), limit: '25mb' }), asyncRoute(async (req, res) => {
+  const name = req.params.name;
+  const ext = UPLOAD_EXT[String(req.headers['content-type'] ?? '').split(';')[0].trim()];
+  if (!ext) {
+    res.status(415).json({ error: 'unsupported image type' });
+    return;
+  }
+  const body = req.body as Buffer;
+  if (!Buffer.isBuffer(body) || !body.length) {
+    res.status(400).json({ error: 'empty upload' });
+    return;
+  }
+  // the agent must exist: an upload for an unknown session would strand files
+  const agents = await listAgents();
+  if (!agents.some((a) => a.name === name)) {
+    res.status(404).json({ error: `no agent "${name}"` });
+    return;
+  }
+  const dir = path.join(UPLOADS_DIR, name);
+  await fs.mkdir(dir, { recursive: true });
+  // a readable, collision-free name: the drop's own name is untrusted
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '');
+  const file = path.join(dir, `image-${stamp}-${randomUUID().slice(0, 8)}.${ext}`);
+  await fs.writeFile(file, body);
+  res.json({ path: file });
 }));
 
 /** Conversations currently owned by a running agent: "provider:sessionId" -> agent. */

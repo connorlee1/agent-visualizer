@@ -3,7 +3,7 @@ import { Wrench } from 'lucide-react';
 import type { ContentBlock, Message, Provider } from '@shared/types';
 import { MessageBlock } from './MessageBlock';
 import { FileOverlay, OpenFileContext } from './FileOverlay';
-import { filePathOf } from './ToolCallBlock';
+import { filePathsOf } from '../../lib/filePaths';
 
 type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>;
 
@@ -24,8 +24,10 @@ function stepFiles(msgs: Message[]): string[] {
   const out: string[] = [];
   for (const m of msgs) {
     for (const b of m.content) {
-      const p = b.kind === 'tool_use' ? filePathOf(b.input) : null;
-      if (p && !out.includes(p)) out.push(p);
+      if (b.kind !== 'tool_use') continue;
+      for (const p of filePathsOf(b.input)) {
+        if (!out.includes(p)) out.push(p);
+      }
     }
   }
   return out;
