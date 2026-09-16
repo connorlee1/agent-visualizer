@@ -1,0 +1,48 @@
+{
+  "name": "agent-visualizer-desktop",
+  "productName": "Agent Visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop dashboard for local and remote coding agents",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "postinstall": "electron-builder install-app-deps",
+    "build": "node scripts/build.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "test": "node --test test/*.test.mjs",
+    "test:electron": "electron scripts/smoke-electron.mjs",
+    "rebuild": "electron-builder install-app-deps",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "chokidar": "4.0.3",
+    "compression": "1.8.1",
+    "express": "5.2.1",
+    "node-pty": "1.1.0",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "electron": "44.4.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2"
+  },
+  "build": {
+    "appId": "com.agentvisualizer.desktop",
+    "productName": "Agent Visualizer",
+    "directories": { "output": "release" },
+    "files": ["src/**/*.mjs", "build/**/*", "package.json"],
+    "asar": true,
+    "asarUnpack": ["node_modules/node-pty/**/*"],
+    "npmRebuild": true,
+    "mac": {
+      "icon": "assets/agent-visualizer.icns",
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg"],
+      "identity": null
+    },
+    "linux": { "target": ["AppImage"], "category": "Development" }
+  }
+}
