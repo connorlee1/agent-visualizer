@@ -42,7 +42,12 @@ export function useResume() {
       return null;
     } catch (err) {
       if (err instanceof LaunchConflictError) {
-        if (err.backgroundAgent) {
+        if (err.backgroundAgent && provider === 'kimi') {
+          const message = 'This Kimi conversation is open elsewhere. Close it there before resuming, or use /fork in Kimi.';
+          setError(message);
+          return message;
+        }
+        if (err.backgroundAgent && provider !== 'kimi') {
           // a background agent owns the conversation and claude refuses
           // --resume on it — fork it into a fresh session instead
           try {

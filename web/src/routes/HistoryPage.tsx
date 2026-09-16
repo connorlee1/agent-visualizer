@@ -1,3 +1,4 @@
+import { PROVIDERS } from '@shared/providers';
 import { useMemo, useState } from 'react';
 import { NavLink, useParams } from 'react-router';
 import { Play, Search } from 'lucide-react';
@@ -93,13 +94,13 @@ export function HistoryPage() {
               />
             </div>
             <div className="flex shrink-0 overflow-hidden rounded-md border border-edge">
-              {(['all', 'claude', 'codex'] as const).map((f) => (
+              {(['all', ...PROVIDERS] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                     filter === f
-                      ? `bg-surface2 ${f === 'claude' ? 'text-claude' : f === 'codex' ? 'text-codex' : 'text-ink'}`
+                      ? `bg-surface2 ${f === 'claude' ? 'text-claude' : f === 'codex' ? 'text-codex' : f === 'kimi' ? 'text-violet-400' : 'text-ink'}`
                       : 'text-mut hover:text-ink'
                   }`}
                 >

@@ -1,3 +1,4 @@
+import { providerColor } from '@shared/providers';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowUpRight, MessageSquare, SquareTerminal, X } from 'lucide-react';
@@ -74,7 +75,7 @@ export function SidePanel({ panel, onClose }: { panel: PanelRef; onClose?: () =>
     panel.kind === 'term'
       ? `/agents/${encodeURIComponent(panel.name)}`
       : `/s/${panel.provider}/${panel.id}${isRemoteHost(panel.host) ? `?host=${panel.host}` : ''}`;
-  const dotColor = chat ? (chat.provider === 'claude' ? 'var(--color-claude)' : 'var(--color-codex)') : undefined;
+  const dotColor = chat ? (providerColor[chat.provider]) : undefined;
 
   const actions = (
     <>

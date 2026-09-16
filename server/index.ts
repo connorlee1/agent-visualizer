@@ -1,3 +1,4 @@
+import { kimiSessionIdForFile } from './sessions/kimi';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -115,8 +116,9 @@ server.on('upgrade', (req, socket, head) => {
 // instead of refetching every open chat on every write (~1.5 events/s here).
 const SESSION_FILE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 startWatcher((filePath) => {
-  const sessionId = SESSION_FILE.exec(filePath)?.[1]?.toLowerCase();
-  const provider = filePath.includes('/.codex/') ? 'codex' : 'claude';
+  const kimiId = kimiSessionIdForFile(filePath.endsWith('state.json') ? path.join(path.dirname(filePath), 'agents', 'main', 'wire.jsonl') : filePath);
+  const sessionId = kimiId ?? SESSION_FILE.exec(filePath)?.[1]?.toLowerCase();
+  const provider = kimiId ? 'kimi' : filePath.includes('/.codex/') ? 'codex' : 'claude';
   // host stamped so clients invalidate the right machine's transcript; when
   // this server runs ON a remote machine the aggregator overwrites it
   broadcast('session-updated', { filePath, provider, sessionId, host: 'local' });

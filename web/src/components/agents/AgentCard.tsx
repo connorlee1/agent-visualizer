@@ -1,3 +1,4 @@
+import { providerColor } from '@shared/providers';
 import { useNavigate } from 'react-router';
 import type { Provider } from '@shared/types';
 import type { AgentWithStatus } from '../../queries';
@@ -9,11 +10,6 @@ import { useDirColor } from '../../lib/useDirColor';
 import { AgentStatusDot } from './AgentStatusDot';
 import { AgentMenu } from './AgentMenu';
 import { PanePreview } from './PanePreview';
-
-const providerColor: Record<Provider, string> = {
-  claude: 'var(--color-claude)',
-  codex: 'var(--color-codex)',
-};
 
 export function AgentCard({ agent }: { agent: AgentWithStatus }) {
   const navigate = useNavigate();

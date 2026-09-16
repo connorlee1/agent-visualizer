@@ -1,9 +1,11 @@
+import { isProvider } from '../shared/providers';
+import { ensureKimiHooks } from './kimihooks';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CLAUDE_HOOKS_FILE, CODEX_NOTIFY_SCRIPT, SERVER_PORT, TMUX_BIN } from './config';
+import { CLAUDE_HOOKS_FILE, CODEX_NOTIFY_SCRIPT, KIMI_CODE_HOME, SERVER_PORT, TMUX_BIN } from './config';
 import type { Provider, TmuxAgent } from '../shared/types';
 
 const exec = promisify(execFile);
@@ -85,7 +87,7 @@ export async function resetWindowSize(name: string): Promise<void> {
 // Dashboard-launched sessions only — NOT merely the "agent-" prefix, which
 // would (and did) capture bystanders like the remote-setup script's own
 // "agent-visualizer" server session and drag them into tracking/closed lists.
-const MANAGED_RE = /^agent-(claude|codex)-[0-9a-f]{6}$/;
+const MANAGED_RE = /^agent-(claude|codex|kimi)-[0-9a-f]{6}$/;
 
 /**
  * The tmux session THIS server process runs inside, if any (remote-setup.sh
@@ -157,7 +159,7 @@ export async function listAgents(opts: { previews?: boolean } = {}): Promise<Tmu
     agents.push({
       name,
       managed,
-      provider: provider === 'claude' || provider === 'codex' ? provider : undefined,
+      provider: isProvider(provider) ? provider : undefined,
       cwd: cwd || undefined,
       resumedFrom: resumedFrom || undefined,
       model: model || undefined,
@@ -241,15 +243,23 @@ async function ensureClaudeHooksFile(): Promise<void> {
   }
 }
 
-function buildAgentCommand(opts: CreateAgentOptions): { command: string; sessionId?: string } {
+export function buildAgentCommand(opts: CreateAgentOptions): { command: string; sessionId?: string } {
   const { provider, model, permissionMode, initialPrompt, resumeSessionId, fork } = opts;
   if (model && !MODEL_RE.test(model)) throw new TmuxError('invalid model');
   if (permissionMode && !PERMISSION_MODES.has(permissionMode)) throw new TmuxError('invalid permission mode');
-  if (resumeSessionId && !UUID_RE.test(resumeSessionId)) throw new TmuxError('invalid session id');
+  if (!isProvider(provider)) throw new TmuxError('unknown provider');
+  if (resumeSessionId && !(provider === 'kimi' ? /^(?:session_)?[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(resumeSessionId) : UUID_RE.test(resumeSessionId))) throw new TmuxError('invalid session id');
 
   const parts: string[] = [];
   let sessionId: string | undefined;
-  if (provider === 'claude') {
+  if (provider === 'kimi') {
+    if (fork) throw new TmuxError('Fork Kimi conversations with /fork in the Kimi terminal, then resume the new conversation.');
+    if (initialPrompt) throw new TmuxError('Send the first Kimi prompt after launch; --prompt starts a non-interactive session.');
+    if (permissionMode) throw new TmuxError('Set Kimi permissions in its terminal.');
+    parts.push('kimi');
+    if (resumeSessionId) { parts.push('--session', shq(resumeSessionId)); sessionId = resumeSessionId; }
+    if (model) parts.push('--model', shq(model));
+  } else if (provider === 'claude') {
     parts.push('claude');
     if (resumeSessionId) {
       parts.push('--resume', resumeSessionId);
@@ -284,7 +294,10 @@ export async function createAgent(opts: CreateAgentOptions): Promise<{ name: str
 
   const { command, sessionId } = buildAgentCommand(opts);
   if (opts.provider === 'claude') await ensureClaudeHooksFile();
-  else await ensureCodexNotifyScript();
+  else if (opts.provider === 'codex') await ensureCodexNotifyScript();
+  else if (opts.provider === 'kimi') {
+    try { await ensureKimiHooks(); } catch (err) { throw new TmuxError(String((err as Error).message)); }
+  }
   const name = `agent-${opts.provider}-${randomBytes(3).toString('hex')}`;
 
   await tmux(['new-session', '-d', '-s', name, '-c', opts.cwd, '-x', '220', '-y', '50']);
@@ -303,7 +316,10 @@ export async function createAgent(opts: CreateAgentOptions): Promise<{ name: str
   for (const [key, value] of Object.entries(userOpts)) {
     if (value) await tmux(['set-option', '-t', name, key, value]);
   }
-  await tmux(['send-keys', '-t', name, '-l', command]);
+  const launchCommand = opts.provider === 'kimi'
+    ? `KIMI_CODE_HOME=${shq(KIMI_CODE_HOME)} AGENT_VISUALIZER_SESSION=${shq(name)} AGENT_VISUALIZER_PORT=${SERVER_PORT} ${command}`
+    : command;
+  await tmux(['send-keys', '-t', name, '-l', launchCommand]);
   await tmux(['send-keys', '-t', name, 'Enter']);
   return { name, sessionId };
 }
@@ -311,6 +327,14 @@ export async function createAgent(opts: CreateAgentOptions): Promise<{ name: str
 export async function killSession(name: string): Promise<void> {
   assertSessionName(name);
   await tmux(['kill-session', '-t', name]);
+}
+
+/** Bind the actual Kimi session, including /new and /sessions switches. */
+export async function linkKimiSession(name: string, id: string): Promise<void> {
+  assertSessionName(name);
+  if (!/^agent-kimi-[0-9a-f]{6}$/.test(name) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) return;
+  if (await getSessionOption(name, '@agent_provider') !== 'kimi') return;
+  await tmux(['set-option', '-t', name, '@agent_session_id', id]);
 }
 
 // control chars would corrupt the TAB-separated list-sessions output

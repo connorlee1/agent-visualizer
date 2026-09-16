@@ -10,7 +10,8 @@
     "build": "vite build web",
     "start": "tsx server/index.ts",
     "test:multihost": "node scripts/multihost-test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:kimi": "node --import tsx --test scripts/kimi-test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
@@ -29,6 +30,7 @@
     "react-router": "^7.1.0",
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.0",
+    "smol-toml": "^1.8.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

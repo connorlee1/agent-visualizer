@@ -114,3 +114,21 @@ export function approvalPending(sessionId: string | undefined, lastWriteMs?: num
   }
   return true;
 }
+
+// Kimi identifies approvals by tool call. Several subagents can ask at once;
+// one answer must not clear another pending dialog. Turn status stays on wire.
+const kimiSignals = new Map<string, { pending: Set<string>; at: number }>();
+export function noteKimiHookEvent(id: string, event: string, toolId?: string): void {
+  const signal = kimiSignals.get(id) ?? { pending: new Set<string>(), at: Date.now() };
+  signal.at = Date.now();
+  if (event === 'PermissionRequest') signal.pending.add(toolId ?? 'unknown');
+  else if (event === 'PermissionResult') signal.pending.delete(toolId ?? 'unknown');
+  else if (event === 'SessionEnd' || event === 'SessionStart') signal.pending.clear();
+  kimiSignals.set(id, signal);
+  if (kimiSignals.size > 1000) kimiSignals.delete(kimiSignals.keys().next().value!);
+}
+export function kimiHookSignal(id: string | undefined) {
+  if (!id) return undefined;
+  const signal = kimiSignals.get(id);
+  return signal && Date.now() - signal.at < 24 * 60 * 60_000 ? signal : undefined;
+}

@@ -327,6 +327,15 @@ export function ChatPane({ agent }: { agent: AgentWithStatus }) {
                   ))}
                 </div>
               )}
+              {!dialog && agent.provider === 'kimi' && (
+                <div className="mt-2 flex gap-2">
+                  {(['Up', 'Down', 'Enter'] as const).map((key) => (
+                    <button key={key} onClick={() => pressKey(key)} className="rounded-md border border-edge bg-bg px-3 py-1 text-[12px] text-ink hover:border-faint">
+                      {key === 'Up' ? '↑' : key === 'Down' ? '↓' : '↵ Confirm'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {showRecap && (

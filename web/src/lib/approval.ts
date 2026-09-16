@@ -22,7 +22,7 @@ export interface ApprovalDialog {
 // dead end — claude doesn't write the AskUserQuestion tool_use record to the
 // JSONL until the user answers it, so a pending ask is never in the file.
 
-const CURSOR = '[❯>›▸]';
+const CURSOR = '[❯>›▸▶]';
 const OPTION_RE = new RegExp(`^\\s*(${CURSOR})?\\s*(\\d{1,2})[.)]\\s+(\\S.*)$`);
 // A line made only of box-drawing characters (dialog frame top/bottom/dividers).
 const BORDER_RE = /^\s*[╭╮╰╯├┤┬┴─╌═╔╗╚╝║│┃+|]+\s*$/;
@@ -102,7 +102,7 @@ export function parseApprovalDialog(preview: string): ApprovalDialog | null {
 }
 
 // Keyboard-hint rows ("enter to confirm · esc to cancel") — not option text.
-const HINT_RE = /\b(enter|tab|esc|arrow keys?)\b.*\b(select|submit|confirm|cancel|navigate|toggle|interrupt)\b/i;
+const HINT_RE = /\b(enter|tab|esc|arrow keys?)\b.*\b(select|submit|confirm|cancel|navigate|toggle|interrupt)\b|↑\/?↓ select|Type feedback · ↵ submit/i;
 
 /** After the last option, stop collecting detail lines at the frame or a blank. */
 function findDialogEnd(lines: (string | null)[], from: number): number {

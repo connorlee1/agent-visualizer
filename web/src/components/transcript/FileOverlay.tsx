@@ -34,6 +34,8 @@ export function FileOverlay({ path: initialPath, host, onClose }: {
   const path = stack[stack.length - 1];
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Transient complaint about a dead link; the document stays on screen. */
+  const [notice, setNotice] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const image = isImage(path);
 
@@ -41,6 +43,7 @@ export function FileOverlay({ path: initialPath, host, onClose }: {
     let cancelled = false;
     setContent(null);
     setError(null);
+    setNotice(null);
     if (image) return; // <img> fetches for itself via /file/raw
     fetchTextFile(path, host)
       .then((f) => {
@@ -69,16 +72,30 @@ export function FileOverlay({ path: initialPath, host, onClose }: {
     const a = (e.target as HTMLElement).closest('a');
     if (!a) return;
     const href = a.getAttribute('href') ?? '';
+    // Never let a link inside a viewed file navigate the dashboard away —
+    // the app is a single page and there is no way back to the reader.
     e.preventDefault();
+    if (!href) return;
     if (href.startsWith('#')) {
       const id = decodeURIComponent(href.slice(1));
-      scrollRef.current?.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ block: 'start' });
-    } else if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-      window.open(href, '_blank', 'noopener');
-    } else if (href) {
-      // relative link: follow it here
-      setStack((s) => [...s, new URL(href, `file://${path}`).pathname]);
+      const target = scrollRef.current?.querySelector(`#${CSS.escape(id)}`);
+      // a missing heading is a dead link, not a load failure — say so in a
+      // transient notice rather than replacing the document with an error
+      if (target) target.scrollIntoView({ block: 'start' });
+      else setNotice(`no section “${id}” in this file`);
+      return;
     }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+      // file:// URLs name a local file — view it rather than hand it to Chrome
+      if (/^file:/i.test(href)) {
+        setStack((s) => [...s, new URL(href).pathname]);
+        return;
+      }
+      window.open(href, '_blank', 'noopener');
+      return;
+    }
+    // relative link: follow it in the viewer
+    setStack((s) => [...s, new URL(href, `file://${path}`).pathname]);
   };
 
   let body;
@@ -97,6 +114,9 @@ export function FileOverlay({ path: initialPath, host, onClose }: {
     );
   } else if (content == null) {
     body = <div className="px-5 py-4 text-[12px] text-faint">loading…</div>;
+  } else if (!content.trim()) {
+    // an empty file would otherwise render as a blank pane that reads as a bug
+    body = <div className="px-5 py-4 text-[12px] text-faint">(empty file)</div>;
   } else if (isMarkdown(path)) {
     body = (
       <div className="mx-auto max-w-[820px] px-5 py-4">
@@ -134,6 +154,15 @@ export function FileOverlay({ path: initialPath, host, onClose }: {
           <X size={13} />
         </button>
       </div>
+      {notice && (
+        <button
+          onClick={() => setNotice(null)}
+          title="dismiss"
+          className="shrink-0 border-b border-edge bg-surface2 px-3 py-1 text-left text-[11px] text-mut hover:text-ink"
+        >
+          {notice}
+        </button>
+      )}
       <div ref={scrollRef} onClick={onClickContent} className="min-h-0 flex-1 overflow-auto">
         {body}
       </div>

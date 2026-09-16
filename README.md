@@ -1,6 +1,6 @@
 # agent-visualizer
 
-A local dashboard for keeping track of AI coding agents. Launch `claude` / `codex` agents inside tmux, watch and type to them from embedded terminals in the browser, browse every past conversation on the machine, and resume any of them with one click. Remote machines (RunPod pods, VMs) show up in the same grid — see [Remote machines](#remote-machines-ssh).
+A local dashboard for keeping track of AI coding agents. Launch `claude` / `codex` / `kimi` agents inside tmux, watch and type to them from embedded terminals in the browser, browse every past conversation on the machine, and resume any of them with one click. Remote machines (RunPod pods, VMs) show up in the same grid — see [Remote machines](#remote-machines-ssh).
 
 ## Quickstart
 
@@ -22,14 +22,14 @@ packaging, and verification commands.
 
 - **macOS or Linux** with **tmux** installed and on PATH. If your tmux lives somewhere PATH doesn't cover, set `TMUX_BIN=/path/to/tmux`. (Developed on macOS; Linux should work but is less tested.)
 - **Node 20+**. `npm install` compiles node-pty, a native module, so you need a C/C++ toolchain: Xcode Command Line Tools on macOS (`xcode-select --install`), `build-essential` + `python3` on Linux.
-- The **`claude` and/or `codex` CLIs** on PATH and logged in — needed to launch and resume agents. Browsing existing transcripts works without them.
+- The **`claude`, `codex`, and/or Node-based `kimi` CLIs** on PATH and logged in — needed to launch and resume agents. Browsing existing transcripts works without them.
 - The **`sqlite3` CLI** for live transcripts/status from newer Codex versions (0.147+ stream to `~/.codex/thread_history_1.sqlite`). Preinstalled on macOS; `apt install sqlite3` on Linux. Without it, Codex falls back to rollout files.
 
 ### Good to know
 
 - The recap text on agent cards is written by background `claude -p --model haiku` calls (idle sessions only, max 2 concurrent, results cached) — these use your Claude quota. If you don't want that, don't run `claude` login on the machine, or rip out `server/sessions/summarizer.ts`.
 - The server binds localhost only; nothing leaves your machine except those summarizer calls.
-- Transcripts are read from `~/.claude/projects` and `~/.codex/sessions`; the dashboard's own state (agent names, closed-agent history, cached summaries) lives in `~/.agent-visualizer/`. Missing directories are fine — the corresponding lists are just empty.
+- Transcripts are read from `~/.claude/projects` and `~/.codex/sessions`, and `~/.kimi-code/sessions`; the dashboard's own state (agent names, closed-agent history, cached summaries) lives in `~/.agent-visualizer/`. Missing directories are fine — the corresponding lists are just empty.
 
 ## What it does
 
@@ -40,6 +40,38 @@ packaging, and verification commands.
 - **Transcript reader** — full conversation rendering: markdown, collapsed-by-default tool calls (click to expand input + result), thinking blocks, token counts, branch markers. Huge sessions open instantly (last 200 messages, "show earlier" pages back).
 - **Resume** — any session row or the reader header. Launches `claude --resume <id>` / `codex resume <id>` in a fresh tmux session **in the conversation's original directory** and drops you into its terminal.
 - **Rename** — the ⋮ menu on every agent card and pane header gives an agent a custom name (stored as `@agent_title` on the tmux session, so it survives server restarts). The same menu keeps the details a custom name hides: working directory (click to copy), the linked conversation tag (click to open its transcript), and the raw tmux session name.
+
+## Kimi Code (Node version)
+
+Select **kimi** in New Agent. Install the Node CLI (`@moonshot-ai/kimi-code`),
+run `kimi` once to finish setup/login, then launch it from the dashboard. The
+npm distribution requires Node 22.19+. This integration targets the Node CLI;
+the legacy Python `kimi-cli` and its `~/.kimi` data are not supported. Verified
+with Kimi Code **0.43.1**, wire protocol **1.5**.
+
+- Launch, terminal input, conversation history, transcripts (including thinking
+  and tool results), resume, approval alerts, and `/new` session switching work.
+- History is read from `~/.kimi-code/sessions`. Set `KIMI_CODE_HOME` on the
+  dashboard server to use another directory; launched Kimi processes use that
+  same directory. On remote machines, configure it on the remote server.
+- Kimi creates a new session on the first message. Send that message after
+  launch using the composer or terminal. Its `--prompt` option is non-interactive,
+  so the launch modal's initial-prompt field is disabled for Kimi.
+- On the first dashboard launch, a marked `agent-visualizer hooks` block is
+  added to Kimi's `config.toml`. Existing settings and hooks are preserved and
+  the resulting TOML is validated before saving. The hooks use `curl` and only
+  send events when the dashboard's launch environment is present. Remove that
+  marked block to uninstall the hooks. Inline `hooks = [{...}]` definitions must
+  be converted to `[[hooks]]` tables before the dashboard can extend them.
+- Model selection at launch is supported. Change live models, permissions, and
+  reasoning settings in Kimi's terminal; the dashboard does not send another
+  provider's control commands. Use `/fork` in Kimi to fork a live conversation.
+- Kimi cards use the last prompt/reply for recaps and do not invoke Claude.
+  Agents started outside the dashboard have only best-effort live linkage;
+  their saved conversations still appear in history.
+
+`npm run test:kimi` runs the regression suite, including fixtures captured from
+an actual Node Kimi CLI against a local mock model. No Kimi account is needed.
 
 ## Remote machines (ssh)
 
