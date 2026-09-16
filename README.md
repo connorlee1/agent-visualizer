@@ -13,6 +13,11 @@ npm run dev        # server on :5175, UI on http://localhost:5173
 
 Single-process mode (no Vite dev server): `npm run build && npm start`, then open http://localhost:5175.
 
+An initial **Electron desktop app** is also available in [desktop/](desktop/README.md).
+It has separate dependencies and build output, and reuses an already-running
+backend without taking ownership of it. See the desktop README for launch,
+packaging, and verification commands.
+
 ### Requirements
 
 - **macOS or Linux** with **tmux** installed and on PATH. If your tmux lives somewhere PATH doesn't cover, set `TMUX_BIN=/path/to/tmux`. (Developed on macOS; Linux should work but is less tested.)
