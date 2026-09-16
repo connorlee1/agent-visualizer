@@ -1,3 +1,4 @@
+import { providerColor } from '@shared/providers';
 import { useNavigate } from 'react-router';
 import { Play } from 'lucide-react';
 import type { SessionSummary } from '@shared/types';
@@ -13,7 +14,7 @@ export function ConversationRow({ session, showProject = true, onError }: {
   const navigate = useNavigate();
   const { resume, busyId } = useResume();
   const untitled = session.title === 'Untitled conversation';
-  const dotColor = session.provider === 'claude' ? 'var(--color-claude)' : 'var(--color-codex)';
+  const dotColor = providerColor[session.provider];
 
   return (
     <div

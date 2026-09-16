@@ -48,7 +48,7 @@ const LIVENESS_WRITE_MS = 120_000;
 // applying agent heuristics to unmanaged sessions. claude/codex run as
 // themselves or under a JS runtime; anything else in an unmanaged pane
 // (ssh, htop, vim, an installer) is just a program someone is using.
-const AGENT_CMD_RE = /^(claude|codex|node|bun|deno)/;
+const AGENT_CMD_RE = /^(claude|codex|kimi|node|bun|deno)/;
 
 export function deriveStatus(
   agent: TmuxAgent,
@@ -72,7 +72,7 @@ export function deriveStatus(
   // dialog's headline can sit well above the bottom.
   if (!agent.hookMonitored) {
     const tail = stripAnsi(agent.preview).split('\n').slice(-30).join('\n');
-    if (DIALOG_CHROME_RE.test(tail)) return 'needs-approval';
+    if (DIALOG_CHROME_RE.test(tail) || (agent.provider === 'kimi' && isKimiApproval(tail))) return 'needs-approval';
   }
 
   const lastWrite = agent.lastWriteMs ?? opts.lastWriteAt;
@@ -125,3 +125,12 @@ export const STATUS_SHORT: Record<AgentStatus, string> = {
   shell: 'shell',
   offline: 'offline',
 };
+
+/** Node Kimi's numbered approval footer; prose mentioning approval is not enough. */
+export function isKimiApproval(preview: string): boolean {
+  const text = stripAnsi(preview);
+  return /^\s*↑\/↓ select · [1-9](?:\/[1-9])* choose · ↵ confirm(?: · ctrl\+e preview)?\s*$/m.test(text) ||
+    /^\s*↑↓ select\s+(?:1(?:-[1-9])? \/ ↵ (?:toggle|choose)|1\/2 choose\s+↵ confirm)(?:\s+←\/→\/tab switch)?\s+esc cancel\s*$/m.test(text) ||
+    (/^\s*Trust this folder\?\s*$/m.test(text) && /^\s*↑↓ navigate · Enter select · Esc exit\s*$/m.test(text)) ||
+    (/^\s*Type feedback · ↵ submit\.\s*$/m.test(text) && /^\s*▶ \d+\. (?:Reject with feedback|Revise)/m.test(text));
+}

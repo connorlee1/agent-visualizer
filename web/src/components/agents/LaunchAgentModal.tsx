@@ -1,3 +1,4 @@
+import { PROVIDERS, providerClasses } from '@shared/providers';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { LaunchAgentRequest, Provider } from '@shared/types';
@@ -90,8 +91,8 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
         cwd,
         title: title.trim() || undefined,
         model: model.trim() || undefined,
-        permissionMode: permissionMode || undefined,
-        initialPrompt: prompt.trim() || undefined,
+        permissionMode: provider === 'claude' ? permissionMode || undefined : undefined,
+        initialPrompt: provider === 'kimi' ? undefined : prompt.trim() || undefined,
       }, host);
       requestComposerFocus(makeRef(host, res.tmuxName));
       onClose();
@@ -115,15 +116,13 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
         }}
       >
         <div className="flex gap-1.5">
-          {(['claude', 'codex'] as const).map((p) => (
+          {PROVIDERS.map((p) => (
             <button
               key={p}
-              onClick={() => setProvider(p)}
+              onClick={() => { setProvider(p); setPermissionMode(''); setModel(''); }}
               className={`flex-1 rounded-md border py-1.5 text-[13px] font-medium ${
                 provider === p
-                  ? p === 'claude'
-                    ? 'border-claude/60 bg-claude/15 text-claude'
-                    : 'border-codex/60 bg-codex/15 text-codex'
+                  ? providerClasses[p]
                   : 'border-edge text-mut hover:text-ink'
               }`}
             >
@@ -222,11 +221,12 @@ export function LaunchAgentModal({ open, prefill, onClose }: {
           Initial prompt <span className="text-faint">(optional)</span>
           <textarea
             ref={promptRef}
-            value={prompt}
+            value={provider === 'kimi' ? '' : prompt}
+            disabled={provider === 'kimi'}
             onChange={(e) => setPrompt(e.target.value)}
             rows={3}
             className={`${inputClass} max-h-[40vh] resize-none overflow-y-auto`}
-            placeholder="What should the agent do?"
+            placeholder={provider === 'kimi' ? 'Send your first prompt after launching Kimi.' : 'What should the agent do?'}
           />
         </label>
 

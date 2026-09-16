@@ -1,3 +1,5 @@
+import type { Provider } from '@shared/types';
+import { providerColor } from '@shared/providers';
 import { useState } from 'react';
 import { Eye } from 'lucide-react';
 import { useAgents, useRecentSessions } from '../../queries';
@@ -46,7 +48,7 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
     onClose();
   };
 
-  const resumeAndPick = async (provider: 'claude' | 'codex', id: string) => {
+  const resumeAndPick = async (provider: Provider, id: string) => {
     setBusyId(id);
     setError(null);
     try {
@@ -54,7 +56,12 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
       pick({ kind: 'term', name: res.tmuxName });
     } catch (err) {
       if (err instanceof LaunchConflictError) {
-        if (err.backgroundAgent) {
+        if (err.backgroundAgent && provider === 'kimi') {
+          const message = 'This Kimi conversation is open elsewhere. Close it there before resuming, or use /fork in Kimi.';
+          setError(message);
+          return ;
+        }
+        if (err.backgroundAgent && provider !== 'kimi') {
           // a background agent owns the conversation and claude refuses
           // --resume on it — fork it into a fresh session instead
           try {
@@ -115,7 +122,7 @@ export function PanelPicker({ open, onClose, onSelect, excludeRefs = [] }: {
           >
             <span
               className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: s.provider === 'claude' ? 'var(--color-claude)' : 'var(--color-codex)' }}
+              style={{ backgroundColor: providerColor[s.provider] }}
             />
             <span className="min-w-0 flex-1 truncate text-[13px]">
               {busyId === s.id ? 'resuming…' : truncate(s.title, 44)}

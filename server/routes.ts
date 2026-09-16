@@ -1,3 +1,4 @@
+import { isProvider } from '../shared/providers';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -8,7 +9,7 @@ import type { AddHostRequest, ClosedAgent, LaunchAgentRequest, TmuxAgent } from 
 import { LOCAL_HOST } from '../shared/types';
 import { sseHandler, broadcast, hasClients } from './events';
 import { addHost, connectedHosts, getHostsInfo, hostBaseUrl, hostEvents, removeHost } from './hosts';
-import { capturePane, createAgent, getSessionOption, isServerRunning, killSession, listAgents, renameAgent, sendKeyToSession, sendTextToSession, TmuxError } from './tmux';
+import { capturePane, createAgent, linkKimiSession, getSessionOption, isServerRunning, killSession, listAgents, renameAgent, sendKeyToSession, sendTextToSession, TmuxError } from './tmux';
 import { findSession, getAllSessions, getProjects, getSessionsForProject, getTranscript, livePathForSession } from './sessions/index';
 import { getCodexSessionFiles } from './sessions/codex';
 import { resolveLiveSessions, transcriptHeldOpen } from './livesessions';
@@ -19,7 +20,7 @@ import { dismissClosed, getClosedAgents, getTrackedAgent, noteKilled, noteResume
 import { driveCodexModelPicker } from './codexpicker';
 import { cycleAgentMode } from './modecycle';
 import { forgetAgentName, getAgentName, rememberAgentName } from './agentnames';
-import { approvalPending, hookMonitored, noteClaudeHookEvent, noteCodexEvent } from './hooksignals';
+import { kimiHookSignal, noteKimiHookEvent, approvalPending, hookMonitored, noteClaudeHookEvent, noteCodexEvent } from './hooksignals';
 
 export const router = Router();
 
@@ -161,7 +162,7 @@ router.get('/sessions/recent', asyncRoute(async (req, res) => {
 
 router.get('/sessions/:provider/:id/transcript', asyncRoute(async (req, res) => {
   const { provider, id } = req.params;
-  if (provider !== 'claude' && provider !== 'codex') {
+  if (!isProvider(provider)) {
     res.status(400).json({ error: 'unknown provider' });
     return;
   }
@@ -294,8 +295,8 @@ async function liveConversations(): Promise<Map<string, TmuxAgent>> {
 
 router.post('/agents', asyncRoute(async (req, res) => {
   const body = req.body as LaunchAgentRequest;
-  if (body?.provider !== 'claude' && body?.provider !== 'codex') {
-    res.status(400).json({ error: 'provider must be claude or codex' });
+  if (!isProvider(body?.provider)) {
+    res.status(400).json({ error: 'provider must be claude, codex, or kimi' });
     return;
   }
 
@@ -561,7 +562,7 @@ async function computeLocalListing(): Promise<TmuxAgent[]> {
       if (recap) {
         agent.lastPrompt = recap.lastPrompt;
         agent.lastAgentMessage = recap.lastAgentMessage;
-        if (recap.context) {
+        if (recap.context && agent.provider !== 'kimi') {
           // returns the cached note and (re)generates in the background — never blocks the poll
           agent.idleSummary = requestIdleNote(filePath, String(turn.lastWriteMs), recap.context);
         }
@@ -580,6 +581,15 @@ async function computeLocalListing(): Promise<TmuxAgent[]> {
     // cleared by any transcript write after the ask (a denial runs no tool
     // and fires no hook — the interrupt record it writes is the only signal).
     const hookId = a.sessionId ?? a.resumedFrom;
+    if (a.provider === 'kimi' && a.agentRunning) {
+      const signal = kimiHookSignal(hookId);
+      if (signal) {
+        if (a.turnState === 'idle' && (a.lastWriteMs ?? 0) > signal.at) signal.pending.clear();
+        a.approvalPending = signal.pending.size > 0 && a.turnState !== 'idle';
+      }
+      // Keep terminal fallback available after restarts and for question dialogs.
+      continue;
+    }
     if (a.agentRunning && a.turnState !== 'idle' && approvalPending(hookId, a.lastWriteMs)) {
       a.approvalPending = true;
     }
@@ -626,6 +636,25 @@ router.post('/hooks/claude', asyncRoute(async (req, res) => {
     invalidateTmuxListing(urgent);
     if (urgent) broadcast('tmux-changed');
   }
+  res.status(204).end();
+}));
+
+// Hooks are scoped by launch-time environment variables; arbitrary external
+// Kimi processes never inherit a dashboard session name.
+router.post('/hooks/kimi', asyncRoute(async (req, res) => {
+  const name = String(req.get('X-Agent-Visualizer-Session') ?? '');
+  const id = String(req.body?.session_id ?? '');
+  const event = String(req.body?.hook_event_name ?? '');
+  if (!/^agent-kimi-[0-9a-f]{6}$/.test(name) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) {
+    res.status(400).json({ error: 'invalid Kimi hook identity' }); return;
+  }
+  if (await getSessionOption(name, '@agent_provider') !== 'kimi') {
+    res.status(404).end(); return;
+  }
+  if (event === 'SessionStart') await linkKimiSession(name, id);
+  noteKimiHookEvent(id, event, typeof req.body?.tool_call_id === 'string' ? req.body.tool_call_id : undefined);
+  invalidateTmuxListing(true);
+  broadcast('tmux-changed');
   res.status(204).end();
 }));
 

@@ -1,3 +1,4 @@
+import { providerColor } from '@shared/providers';
 import { memo } from 'react';
 import type { ContentBlock, Message, Provider } from '@shared/types';
 import { fmtTokens } from '../../lib/format';
@@ -18,7 +19,7 @@ function MessageBlockInner({ msg, provider, toolResults, forceToolsOpen, showHea
   forceToolsOpen?: boolean;
   showHeader?: boolean;
 }) {
-  const accent = provider === 'claude' ? 'var(--color-claude)' : 'var(--color-codex)';
+  const accent = providerColor[provider];
 
   if (msg.role === 'user') {
     const texts = msg.content.filter((b) => b.kind === 'text');

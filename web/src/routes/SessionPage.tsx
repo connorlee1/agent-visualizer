@@ -1,3 +1,4 @@
+import { isProvider } from '@shared/providers';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Columns2, Play } from 'lucide-react';
@@ -29,8 +30,11 @@ function dedupeById(list: Message[]): Message[] {
 
 export function SessionPage() {
   const params = useParams<{ provider: string; sessionId: string }>();
-  const provider = (params.provider === 'codex' ? 'codex' : 'claude') as Provider;
-  const sessionId = params.sessionId!;
+  if (!isProvider(params.provider)) return <div className="p-6 text-mut">Unknown provider</div>;
+  return <SessionPageContent provider={params.provider} sessionId={params.sessionId!} />;
+}
+
+function SessionPageContent({ provider, sessionId }: { provider: Provider; sessionId: string }) {
   const navigate = useNavigate();
 
   const [searchParams, setSearchParams] = useSearchParams();

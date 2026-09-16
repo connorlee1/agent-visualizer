@@ -1,3 +1,4 @@
+import { kimiTurnState } from './kimi';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Provider } from '../../shared/types';
@@ -144,13 +145,15 @@ export async function getTurnState(provider: Provider, filePath: string): Promis
     state = cached.state;
   } else {
     const records = await readTailLines(filePath, stat.size);
-    const verdict = provider === 'claude' ? claudeTurnState(records, stat.mtimeMs) : codexTurnState(records);
+    const verdict = provider === 'kimi' ? { state: kimiTurnState(records), volatile: false } : provider === 'claude' ? claudeTurnState(records, stat.mtimeMs) : codexTurnState(records);
     state = verdict.state;
     if (!verdict.volatile) {
       cache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, state });
       if (cache.size > 200) cache.delete(cache.keys().next().value as string);
     }
   }
-  if (state === 'working' && Date.now() - stat.mtimeMs > STALE_TURN_MS) state = 'idle';
+  // Node Kimi records explicit turn endings/cancellations. Long tool calls or
+  // approvals can legitimately leave its wire file unchanged for minutes.
+  if (provider !== 'kimi' && state === 'working' && Date.now() - stat.mtimeMs > STALE_TURN_MS) state = 'idle';
   return { state, lastWriteMs: stat.mtimeMs };
 }

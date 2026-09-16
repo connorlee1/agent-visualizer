@@ -35,7 +35,8 @@ run 'set -e
   command -v lsof >/dev/null || echo "WARN: lsof missing — live pane↔conversation linkage degrades (apt-get install -y lsof)"
   command -v sqlite3 >/dev/null || echo "WARN: sqlite3 missing — live codex transcripts degrade (apt-get install -y sqlite3)"
   command -v claude >/dev/null || echo "WARN: claude CLI not on PATH — claude agents will not launch"
-  command -v codex  >/dev/null || echo "WARN: codex CLI not on PATH — codex agents will not launch"'
+  command -v codex  >/dev/null || echo "WARN: codex CLI not on PATH — codex agents will not launch"
+  command -v kimi   >/dev/null || echo "NOTE: Node Kimi Code CLI not on PATH — kimi agents will not launch"'
 
 echo "==> syncing code to $DEST:~/$REMOTE_DIR"
 rsync -az --delete \

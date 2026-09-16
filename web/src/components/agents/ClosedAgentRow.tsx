@@ -1,3 +1,4 @@
+import { providerColor } from '@shared/providers';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { RotateCcw, X } from 'lucide-react';
@@ -24,7 +25,7 @@ export function ClosedAgentRow({ entry, onError }: {
   // without a session id there is no conversation to reopen — show it, but inert
   const resumable = !!entry.provider && !!entry.sessionId;
   const label = entry.title || (entry.cwd ? basename(entry.cwd) : entry.name);
-  const dotColor = entry.provider === 'codex' ? 'var(--color-codex)' : 'var(--color-claude)';
+  const dotColor = entry.provider ? providerColor[entry.provider] : 'var(--color-faint)';
 
   return (
     <div
@@ -60,7 +61,7 @@ export function ClosedAgentRow({ entry, onError }: {
                   setTimeout(() => setCopied(false), 1200);
                 }}
                 title={`${entry.conversationTitle ? `chat “${entry.conversationTitle}” — ` : ''}click to copy id · manual resume (from the directory above): ${
-                  entry.provider === 'codex' ? `codex resume ${entry.sessionId}` : `claude --resume ${entry.sessionId}`
+                  entry.provider === 'kimi' ? `kimi --session ${entry.sessionId}` : entry.provider === 'codex' ? `codex resume ${entry.sessionId}` : `claude --resume ${entry.sessionId}`
                 }`}
                 className="font-body hover:text-ink"
               >

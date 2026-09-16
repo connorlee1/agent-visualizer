@@ -1,3 +1,4 @@
+import { isProvider } from '@shared/providers';
 import type { Provider } from '@shared/types';
 import { isRemoteHost, LOCAL_HOST } from './agentRef';
 
@@ -20,7 +21,7 @@ export function decodePanelRef(s: string | null): PanelRef | null {
   // term names are agent refs and may themselves contain ":" — split only the tag
   if (s.startsWith('term:') && s.length > 5) return { kind: 'term', name: s.slice(5) };
   const parts = s.split(':');
-  if (parts[0] === 'chat' && (parts[1] === 'claude' || parts[1] === 'codex') && parts[2]) {
+  if (parts[0] === 'chat' && isProvider(parts[1]) && parts[2]) {
     return { kind: 'chat', provider: parts[1], id: parts[2], host: parts[3] || LOCAL_HOST };
   }
   return null;

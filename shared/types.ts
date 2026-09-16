@@ -1,4 +1,4 @@
-export type Provider = 'claude' | 'codex';
+export type Provider = 'claude' | 'codex' | 'kimi';
 
 export type AgentStatus =
   | 'working'

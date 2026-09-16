@@ -1,3 +1,4 @@
+import { kimiIdleSummary } from './kimi';
 import fs from 'node:fs/promises';
 import type { Provider } from '../../shared/types';
 import { readTailLines } from './parse';
@@ -124,7 +125,7 @@ export async function getIdleSummary(provider: Provider, filePath: string): Prom
   const cached = cache.get(filePath);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.summary;
   const records = await readTailLines(filePath, stat.size, TAIL_BYTES);
-  const summary = provider === 'claude' ? claudeSummary(records) : codexSummary(records);
+  const summary = provider === 'kimi' ? kimiIdleSummary(records) : provider === 'claude' ? claudeSummary(records) : codexSummary(records);
   cache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, summary });
   if (cache.size > 200) cache.delete(cache.keys().next().value as string);
   return summary;

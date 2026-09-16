@@ -1,0 +1,17 @@
+{
+  "id": "session_b2f84467-dcb2-4057-81ff-9d873bac9f9d",
+  "version": 2,
+  "cwd": "/tmp/kimi-test-project",
+  "createdAt": 1789594610588,
+  "updatedAt": 1789594610750,
+  "archived": false,
+  "agents": {
+    "main": {
+      "homedir": "/tmp/kimi-test-home/sessions/workspace/session_b2f84467-dcb2-4057-81ff-9d873bac9f9d/agents/main",
+      "type": "main"
+    }
+  },
+  "custom": {},
+  "lastTurnReason": "completed",
+  "isCustomTitle": false
+}

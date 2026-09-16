@@ -18,6 +18,9 @@ export function linkedSessionFor(
 ): { provider: Provider; id: string } | null {
   if (!agent?.provider) return null;
   const stamped = agent.sessionId ?? agent.resumedFrom;
+  // Kimi SessionStart hooks carry the exact id, including in-terminal switches.
+  // A newer conversation in the directory can belong to another process.
+  if (agent.provider === 'kimi') return stamped ? { provider: 'kimi', id: stamped } : null;
   if (!agent.cwd) return stamped ? { provider: agent.provider, id: stamped } : null;
 
   const soleAgentHere =

@@ -132,6 +132,8 @@ export function ModelEffortMenu({ agent, summary, prefix, className }: {
   const mode = pending.mode ?? confirmedMode;
   if (!model && !effort) return null;
 
+  if (agent.provider === 'kimi') return <span className={className} title="Use /model and /permissions in the Kimi terminal">{prefix}{model ?? 'kimi'}{effort ? ` ${effort}` : ''}</span>;
+
   const modeRows = agent.provider === 'codex' ? CODEX_MODE_ROWS : CLAUDE_MODE_ROWS;
   const modeLabel = mode ? (modeRows.find(([v]) => v === mode)?.[1] ?? mode) : null;
   // codex's normal mode isn't worth chip space; claude's always is (auto vs plan…)

@@ -1,8 +1,9 @@
+import { kimiSessionIdForFile } from './sessions/kimi';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import type { TmuxAgent } from '../shared/types';
-import { CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR } from './config';
+import { CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR, KIMI_SESSIONS_DIR } from './config';
 import { codexSessionIdForFile } from './sessions/codex';
 
 const exec = promisify(execFile);
@@ -66,17 +67,18 @@ let cache: { at: number; value: Map<number, string> } | null = null;
 /** panePid -> transcript file path that pane's process tree holds open. */
 async function liveSessionsByPane(panePids: number[]): Promise<Map<number, string>> {
   if (cache && Date.now() - cache.at < 5000) return cache.value;
-  const [claudeFiles, codexFiles, parents] = await Promise.all([
+  const [claudeFiles, codexFiles, kimiFiles, parents] = await Promise.all([
     openFilesUnder(CLAUDE_PROJECTS_DIR),
     openFilesUnder(CODEX_SESSIONS_DIR),
+    openFilesUnder(KIMI_SESSIONS_DIR),
     parentTable(),
   ]);
   const paneSet = new Set(panePids);
   // a process can hold several session files open (e.g. read the resumed
   // source + write the live one) — rank candidates by last write
   const candidates = new Map<number, string[]>();
-  for (const [holderPid, filePath] of [...claudeFiles, ...codexFiles]) {
-    if (!SESSION_FILE_RE.test(filePath)) continue;
+  for (const [holderPid, filePath] of [...claudeFiles, ...codexFiles, ...kimiFiles]) {
+    if (!SESSION_FILE_RE.test(filePath) && !kimiSessionIdForFile(filePath)) continue;
     let pid: number | undefined = holderPid;
     for (let hops = 0; pid && hops < 25; hops++) {
       if (paneSet.has(pid)) {
@@ -96,7 +98,7 @@ async function liveSessionsByPane(panePids: number[]): Promise<Map<number, strin
       const mtime = stat?.mtimeMs ?? 0;
       if (!best || mtime > best.mtime) best = { path, mtime };
     }
-    if (best && SESSION_FILE_RE.test(best.path)) result.set(panePid, best.path);
+    if (best && (SESSION_FILE_RE.test(best.path) || kimiSessionIdForFile(best.path))) result.set(panePid, best.path);
   }
   cache = { at: Date.now(), value: result };
   return result;
@@ -118,9 +120,11 @@ export async function resolveLiveSessions(agents: TmuxAgent[]): Promise<Map<stri
     if (!filePath) continue;
     // the filename id of a codex subagent side-thread is the thread's own id,
     // which matches no conversation — session_meta carries the parent's
-    const id = agent.provider === 'codex'
+    const kimiId = kimiSessionIdForFile(filePath);
+    if (kimiId) agent.provider = 'kimi';
+    const id = kimiId ?? (agent.provider === 'codex'
       ? (await codexSessionIdForFile(filePath)) ?? SESSION_FILE_RE.exec(filePath)?.[1]
-      : SESSION_FILE_RE.exec(filePath)?.[1];
+      : SESSION_FILE_RE.exec(filePath)?.[1]);
     if (id) agent.sessionId = id.toLowerCase();
     paths.set(agent.name, filePath);
   }

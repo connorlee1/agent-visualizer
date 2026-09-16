@@ -1,18 +1,19 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import chokidar from 'chokidar';
-import { CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR } from '../config';
+import { CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR, KIMI_SESSIONS_DIR } from '../config';
 import type { Message, Project, Provider, SessionSummary, TranscriptResponse } from '../../shared/types';
 import { invalidateClaude, listClaudeSessions, parseClaudeTranscript } from './claude';
 import { getCodexSessionFiles, invalidateCodex, listCodexSessions, parseCodexSessionTranscript } from './codex';
+import { invalidateKimi, listKimiSessions, parseKimiTranscript } from './kimi';
 import { getAgentName } from '../agentnames';
 
 const byRecency = (a: SessionSummary, b: SessionSummary) =>
   new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
 
 async function computeAllSessions(): Promise<SessionSummary[]> {
-  const [claude, codex] = await Promise.all([listClaudeSessions(), listCodexSessions()]);
-  return [...claude, ...codex]
+  const [claude, codex, kimi] = await Promise.all([listClaudeSessions(), listCodexSessions(), listKimiSessions()]);
+  return [...claude, ...codex, ...kimi]
     .map((s) => ({ ...s, agentName: getAgentName(s.id) }))
     .sort(byRecency);
 }
@@ -132,8 +133,8 @@ async function parseTranscript(summary: SessionSummary): Promise<ParsedTranscrip
   if (inflight) return inflight;
   const job = (async () => {
     let parsed: ParsedTranscript;
-    if (summary.provider === 'claude') {
-      const messages = await parseClaudeTranscript(summary.filePath);
+    if (summary.provider !== 'codex') {
+      const messages = await (summary.provider === 'kimi' ? parseKimiTranscript : parseClaudeTranscript)(summary.filePath);
       parsed = { messages, total: messages.length };
     } else {
       parsed = await parseCodexSessionTranscript(summary);
@@ -187,7 +188,7 @@ export async function getTranscript(
 export async function livePathForSession(provider: Provider, id: string): Promise<string | null> {
   const summary = await findSession(provider, id);
   if (!summary) return null;
-  if (provider === 'claude') return summary.filePath;
+  if (provider !== 'codex') return summary.filePath;
   const files = getCodexSessionFiles(id);
   if (files.length <= 1) return summary.filePath;
   let best = summary.filePath;
@@ -205,6 +206,7 @@ export async function livePathForSession(provider: Provider, id: string): Promis
 export function invalidateSession(filePath: string): void {
   invalidateClaude(filePath);
   invalidateCodex(filePath);
+  invalidateKimi(filePath);
   transcriptCache.delete(filePath);
   // aggregate goes stale, not dropped — the next caller still answers
   // instantly from it while the refresh folds this change in
@@ -216,18 +218,18 @@ export function startWatcher(onChange: (filePath: string) => void): void {
   // (remote pod, new laptop) the server often boots before claude/codex have
   // ever run, and a watch on a then-nonexistent directory never fires — the
   // dashboard silently loses every live-update push until a restart.
-  for (const dir of [CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR]) {
+  for (const dir of [CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR, KIMI_SESSIONS_DIR]) {
     try {
       fsSync.mkdirSync(dir, { recursive: true });
     } catch { /* unwritable home — polling still covers */ }
   }
-  const watcher = chokidar.watch([CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR], {
+  const watcher = chokidar.watch([CLAUDE_PROJECTS_DIR, CODEX_SESSIONS_DIR, KIMI_SESSIONS_DIR], {
     ignoreInitial: true,
     depth: 4,
   });
   const pending = new Map<string, NodeJS.Timeout>();
   const handle = (filePath: string) => {
-    if (!filePath.endsWith('.jsonl')) return;
+    if (!filePath.endsWith('.jsonl') && !filePath.endsWith('state.json')) return;
     clearTimeout(pending.get(filePath));
     pending.set(filePath, setTimeout(() => {
       pending.delete(filePath);
