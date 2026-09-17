@@ -189,7 +189,14 @@ process.on('SIGTERM', () => finish(new Error('Native smoke interrupted')));
 process.on('uncaughtException', finish);
 process.on('unhandledRejection', finish);
 try {
-  for (const dependency of ['express', 'compression', 'chokidar', 'ws']) require(dependency);
+  const manifest = require('./package.json');
+  for (const dependency of Object.keys(manifest.dependencies)) {
+    const resolved = require.resolve(dependency);
+    if (!resolved.startsWith(path.join(appDir, 'node_modules') + path.sep)) {
+      throw new Error('Dependency resolved outside the selected app: ' + dependency);
+    }
+    require(dependency);
+  }
   const { spawn } = require('node-pty');
   let output = '';
   terminal = spawn('/bin/sh', ['-c', 'printf electron-native-pty-ok'], {
